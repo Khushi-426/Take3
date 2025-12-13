@@ -8,14 +8,17 @@ import Tracker from './Tracker';
 import Report from './Report';
 import Tutorial from './Tutorial'; 
 import Profile from './pages/Profile';
+import Analytics from './pages/Analytics'; // Daily Report Graphs
+import RiskPrediction from './pages/RiskPrediction'; // AI Recovery Page
 import Navbar from './components/Navbar';
 import * as Pages from './pages/PlaceholderPages';
 
-// ✅ YOUR NEW CLIENT ID IS HERE
+// ✅ YOUR GOOGLE CLIENT ID
 const GOOGLE_CLIENT_ID = "254404106678-ql7lb3kidfsvdjk5a4fcjl7t7kn61aos.apps.googleusercontent.com"; 
 
 const Layout = ({ children }) => {
   const location = useLocation();
+  // Hide Navbar only on the active tracking page to maximize screen space
   const showNavbar = location.pathname !== '/track';
 
   return (
@@ -35,39 +38,41 @@ function App() {
         <Router>
           <Layout>
             <Routes>
-              {/* Main Pages */}
+              {/* --- Main Pages --- */}
               <Route path="/" element={<Dashboard />} />
               <Route path="/track" element={<Tracker />} />
               <Route path="/report" element={<Report />} />
               
-              {/* Training Section */}
+              {/* --- Training Section --- */}
               <Route path="/training/library" element={<Tutorial />} /> 
               <Route path="/training/detail" element={<Pages.ExerciseDetail />} />
               
-              {/* Auth */}
+              {/* --- Authentication --- */}
               <Route path="/auth/login" element={<Pages.Login />} />
               <Route path="/auth/signup" element={<Pages.Signup />} />
               <Route path="/auth/onboarding" element={<Pages.Onboarding />} />
 
-              {/* Profile */}
+              {/* --- Profile --- */}
               <Route path="/profile/overview" element={<Profile />} />
               <Route path="/profile/medical" element={<Pages.MedicalInfo />} />
               <Route path="/profile/preferences" element={<Pages.Preferences />} />
 
-              {/* Programs */}
+              {/* --- Programs --- */}
               <Route path="/programs/my-programs" element={<Pages.MyPrograms />} />
               <Route path="/programs/custom" element={<Pages.CustomProgram />} />
 
-              {/* Analytics */}
-              <Route path="/analytics/accuracy" element={<Pages.AccuracyGraphs />} />
-              <Route path="/analytics/risk" element={<Pages.RiskPrediction />} />
+              {/* --- ANALYTICS ROUTES --- */}
+              {/* 1. Daily Report (Accuracy Graphs) */}
+              <Route path="/analytics/accuracy" element={<Analytics />} />
+              {/* 2. AI Recovery (Prediction & Risk) */}
+              <Route path="/analytics/risk" element={<RiskPrediction />} />
 
-              {/* Community */}
+              {/* --- Community --- */}
               <Route path="/community/achievements" element={<Pages.Achievements />} />
               <Route path="/community/challenges" element={<Pages.Challenges />} />
               <Route path="/community/therapist" element={<Pages.TherapistModule />} />
 
-              {/* Support */}
+              {/* --- Support --- */}
               <Route path="/support/faq" element={<Pages.FAQ />} />
               <Route path="/support/contact" element={<Pages.Contact />} />
               <Route path="/support/legal" element={<Pages.Legal />} />

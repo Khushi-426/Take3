@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom'; // Added useNavigate
-import { ChevronDown, Activity, User, BookOpen, BarChart2, Users, LifeBuoy, LogOut } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom'; 
+import { ChevronDown, Activity, User, BookOpen, BarChart2, Users, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useAuth } from '../context/AuthContext'; // Import the Auth Context
+import { useAuth } from '../context/AuthContext'; 
 
 const NavItem = ({ title, icon: Icon, items, path }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -21,6 +21,7 @@ const NavItem = ({ title, icon: Icon, items, path }) => {
     textDecoration: 'none'
   };
 
+  // Single Link Item
   if (!items && path) {
     return (
       <Link 
@@ -35,6 +36,7 @@ const NavItem = ({ title, icon: Icon, items, path }) => {
     );
   }
 
+  // Dropdown Item
   return (
     <div 
       className="nav-item"
@@ -95,7 +97,7 @@ const NavItem = ({ title, icon: Icon, items, path }) => {
 };
 
 const Navbar = () => {
-  const { user, logout } = useAuth(); // ACCESS GLOBAL USER STATE
+  const { user, logout } = useAuth(); 
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -133,18 +135,21 @@ const Navbar = () => {
         <NavItem title="Programs" icon={BookOpen} items={[
            { name: 'My Programs', path: '/programs/my-programs' }
         ]} />
+        
+        {/* NEW ANALYTICS DROPDOWN */}
         <NavItem title="Analytics" icon={BarChart2} items={[
-           { name: 'Daily Report', path: '/report' }
+           { name: 'Daily Report', path: '/analytics/accuracy' },
+           { name: 'AI Recovery', path: '/analytics/risk' } 
         ]} />
+        
         <NavItem title="Community" icon={Users} items={[
            { name: 'Achievements', path: '/community/achievements' }
         ]} />
       </div>
 
-      {/* Auth Buttons - CONDITIONAL RENDERING */}
+      {/* Auth Buttons */}
       <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
         {user ? (
-          // IF LOGGED IN
           <>
             <div style={{ textAlign: 'right', marginRight: '10px' }}>
               <span style={{ display: 'block', fontSize: '0.85rem', color: '#888' }}>Welcome back,</span>
@@ -170,7 +175,6 @@ const Navbar = () => {
             </button>
           </>
         ) : (
-          // IF LOGGED OUT
           <>
             <Link to="/auth/login" style={{ 
                 textDecoration: 'none', 

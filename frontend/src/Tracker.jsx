@@ -2,10 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Timer, ArrowLeft, StopCircle, Info, CheckCircle, 
-  ChevronRight, Activity, AlertCircle, Play, Dumbbell 
+  ChevronRight, Activity, AlertCircle, Play, Dumbbell, Wifi, WifiOff 
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useAuth } from './context/AuthContext'; // IMPORT AUTH CONTEXT
+import { useAuth } from './context/AuthContext'; 
 
 // --- MOCK DATA: EXERCISE LIBRARY ---
 const EXERCISES = [
@@ -48,10 +48,9 @@ const EXERCISES = [
 
 const Tracker = () => {
   const navigate = useNavigate();
-  const { user } = useAuth(); // GET USER INFO
+  const { user } = useAuth();
   
   // --- STATES ---
-  // Flow: LIBRARY -> DEMO -> SESSION
   const [viewMode, setViewMode] = useState('LIBRARY'); 
   const [selectedExercise, setSelectedExercise] = useState(null);
   
@@ -59,74 +58,113 @@ const Tracker = () => {
   const [active, setActive] = useState(false);
   const [data, setData] = useState(null);
   const [sessionTime, setSessionTime] = useState(0);
-  const [feedback, setFeedback] = useState("Press Start");
+  const [feedback, setFeedback] = useState("Initializing...");
   const [videoTimestamp, setVideoTimestamp] = useState(Date.now());
+  const [connectionStatus, setConnectionStatus] = useState('DISCONNECTED'); // CONNECTED, DISCONNECTED
   
+  // Phase Specific States
+  const [calibrationProgress, setCalibrationProgress] = useState(0);
+  const [countdownValue, setCountdownValue] = useState(null);
+
   const intervalRef = useRef(null);
   const timerRef = useRef(null);
 
   // --- SESSION CONTROL FUNCTIONS ---
   const startSession = async () => {
     try {
+        setConnectionStatus('CONNECTING');
         const res = await fetch('http://localhost:5000/start_tracking');
+        if (!res.ok) throw new Error('Server error');
+        
         const json = await res.json();
         if (json.status === 'success') {
           setVideoTimestamp(Date.now());
           setActive(true);
           setSessionTime(0);
+          setConnectionStatus('CONNECTED');
+          
+          // Clear any existing intervals
+          if(intervalRef.current) clearInterval(intervalRef.current);
+          if(timerRef.current) clearInterval(timerRef.current);
+
           // Polling for data
           intervalRef.current = setInterval(fetchData, 100);
           // Session Timer
           timerRef.current = setInterval(() => setSessionTime(t => t + 1), 1000);
         }
     } catch (e) {
-        alert("Could not connect to AI Server. Is 'app.py' running?");
+        alert("Could not connect to AI Server. Please ensure 'app.py' is running.");
+        setConnectionStatus('DISCONNECTED');
     }
   };
 
   const stopSession = async () => {
     try {
-        // Send POST request with User Email to save data
+        // Updated to send Exercise Name!
         await fetch('http://localhost:5000/stop_tracking', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: user?.email }) 
+            body: JSON.stringify({ 
+                email: user?.email,
+                exercise: selectedExercise?.title || 'Freestyle' // SEND EXERCISE NAME
+            }) 
         });
     } catch(e) { console.error("Error stopping session:", e) }
     
     setActive(false);
     clearInterval(intervalRef.current);
     clearInterval(timerRef.current);
-    navigate('/report'); // Go to report after finishing
+    navigate('/report');
   };
 
   const fetchData = async () => {
     try {
       const res = await fetch('http://localhost:5000/data_feed');
+      if (!res.ok) throw new Error('Network response was not ok');
       const json = await res.json();
+      
+      setConnectionStatus('CONNECTED');
       setData(json);
       
-      if (json.status === 'COUNTDOWN') {
-        setFeedback(`Starting in ${json.remaining}...`);
-      } else if (json.status === 'ACTIVE') {
-        let msg = "MAINTAIN FORM";
-        let color = "#76B041"; 
+      // Handle Phases for UX
+      if (json.status === 'CALIBRATION') {
+          setFeedback(json.calibration?.message || "Calibrating...");
+          setCalibrationProgress(json.calibration?.progress || 0);
+          setCountdownValue(null);
+      } 
+      else if (json.status === 'COUNTDOWN') {
+          setFeedback("Get Ready!");
+          setCountdownValue(json.remaining);
+          setCalibrationProgress(100); 
+      } 
+      else if (json.status === 'ACTIVE') {
+          setCountdownValue(null);
+          let msg = "MAINTAIN FORM";
+          let color = "#76B041"; // Green
 
-        if (json.RIGHT.feedback) { msg = `RIGHT: ${json.RIGHT.feedback}`; color = "#D32F2F"; }
-        else if (json.LEFT.feedback) { msg = `LEFT: ${json.LEFT.feedback}`; color = "#D32F2F"; }
-        
-        setFeedback(msg);
-        const fbBox = document.getElementById('feedback-box');
-        if(fbBox) {
-            fbBox.style.color = color;
-            fbBox.style.borderColor = color;
-        }
+          if (json.RIGHT.feedback) { msg = `RIGHT: ${json.RIGHT.feedback}`; color = "#D32F2F"; }
+          else if (json.LEFT.feedback) { msg = `LEFT: ${json.LEFT.feedback}`; color = "#D32F2F"; }
+          
+          setFeedback(msg);
+          
+          // Direct DOM manipulation for performance on rapid updates
+          const fbBox = document.getElementById('feedback-box');
+          if(fbBox) {
+              fbBox.style.color = color;
+              fbBox.style.borderColor = color;
+          }
       }
-    } catch (err) { console.error(err); }
+    } catch (err) { 
+        console.error(err);
+        setConnectionStatus('DISCONNECTED');
+    }
   };
 
   useEffect(() => {
-    return () => { clearInterval(intervalRef.current); clearInterval(timerRef.current); }
+    return () => { 
+        clearInterval(intervalRef.current); 
+        clearInterval(timerRef.current); 
+    }
   }, []);
 
   const formatTime = (s) => {
@@ -219,7 +257,6 @@ const Tracker = () => {
       initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }}
       style={{ height: '100vh', display: 'flex', background: '#F9F7F3' }}
     >
-      {/* Left: Info Panel */}
       <div style={{ flex: '0 0 450px', padding: '40px', display: 'flex', flexDirection: 'column', overflowY: 'auto', background: '#fff', borderRight: '1px solid rgba(0,0,0,0.05)', zIndex: 10 }}>
         <button 
             onClick={() => setViewMode('LIBRARY')} 
@@ -252,7 +289,6 @@ const Tracker = () => {
         </div>
 
         <div style={{ marginTop: 'auto' }}>
-            {/* UPDATED START BUTTON WITH AUTH CHECK */}
             <button 
                 onClick={() => { 
                     if (!user) {
@@ -278,7 +314,6 @@ const Tracker = () => {
         </div>
       </div>
 
-      {/* Right: Demo Video */}
       <div style={{ flex: 1, background: '#000', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <video 
             src="/bicep_demo.mp4" 
@@ -289,7 +324,6 @@ const Tracker = () => {
             playsInline
             style={{ width: '100%', height: '100%', objectFit: 'contain' }} 
           />
-          
           <div style={{ position: 'absolute', top: '30px', right: '30px', background: 'rgba(0,0,0,0.6)', padding: '10px 20px', borderRadius: '30px', color: '#fff', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', gap: '10px' }}>
              <Activity size={18} color="#69B341" /> Demo Mode
           </div>
@@ -308,8 +342,12 @@ const Tracker = () => {
         
         {/* Header */}
         <div style={{ padding: '30px', borderBottom: '1px solid #eee', textAlign: 'center' }}>
-          <div style={{ fontSize: '0.8rem', color: '#888', fontWeight: '700', letterSpacing: '1px', marginBottom: '8px', textTransform: 'uppercase' }}>
-            {selectedExercise?.title}
+          <div style={{ fontSize: '0.8rem', color: '#888', fontWeight: '700', letterSpacing: '1px', marginBottom: '8px', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between' }}>
+            <span>{selectedExercise?.title}</span>
+            {connectionStatus === 'CONNECTED' ? 
+               <Wifi size={16} color="#69B341" title="Connected" /> : 
+               <WifiOff size={16} color="#D32F2F" title="Disconnected" />
+            }
           </div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', color: '#2C5D31', fontSize: '2.5rem', fontWeight: '800' }}>
             <Timer size={32} />
@@ -362,8 +400,8 @@ const Tracker = () => {
         </div>
       </div>
 
-      {/* Camera Feed */}
-      <div style={{ flex: 1, position: 'relative', background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {/* Camera Feed Area */}
+      <div style={{ flex: 1, position: 'relative', background: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
         <div style={{ width: '100%', height: '100%', position: 'relative' }}>
             {active ? (
                 <img 
@@ -372,20 +410,71 @@ const Tracker = () => {
                     alt="Stream"
                 />
             ) : (
-                <div style={{ color: 'white' }}>Initializing Camera...</div>
-            )}
-
-            {active && (
-                <div id="feedback-box" style={{ 
-                    position: 'absolute', bottom: '50px', left: '50%', transform: 'translateX(-50%)',
-                    background: 'rgba(255,255,255,0.9)', padding: '15px 40px', borderRadius: '50px',
-                    fontSize: '1.5rem', fontWeight: '800', color: '#222', whiteSpace: 'nowrap',
-                    boxShadow: '0 20px 40px rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)',
-                    display: 'flex', alignItems: 'center', gap: '10px'
-                }}>
-                   {feedback === 'MAINTAIN FORM' ? <CheckCircle size={28}/> : <AlertCircle size={28}/>} {feedback}
+                <div style={{ color: 'white', position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    Initializing Camera...
                 </div>
             )}
+
+            {/* OVERLAYS */}
+            <AnimatePresence>
+                {/* 1. CALIBRATION OVERLAY */}
+                {data?.status === 'CALIBRATION' && (
+                    <motion.div 
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        style={{
+                            position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)',
+                            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                            backdropFilter: 'blur(5px)'
+                        }}
+                    >
+                        <h2 style={{ color: '#fff', fontSize: '2rem', marginBottom: '20px', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>
+                            {feedback}
+                        </h2>
+                        <div style={{ width: '60%', height: '12px', background: 'rgba(255,255,255,0.2)', borderRadius: '6px', overflow: 'hidden' }}>
+                            <motion.div 
+                                animate={{ width: `${calibrationProgress}%` }}
+                                style={{ height: '100%', background: '#00E676' }}
+                            />
+                        </div>
+                        <p style={{ color: '#ccc', marginTop: '10px' }}>{calibrationProgress}% Complete</p>
+                    </motion.div>
+                )}
+
+                {/* 2. COUNTDOWN OVERLAY */}
+                {data?.status === 'COUNTDOWN' && (
+                    <motion.div
+                        initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 1.5, opacity: 0 }}
+                        key={countdownValue}
+                        style={{
+                            position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: 'rgba(0,0,0,0.2)'
+                        }}
+                    >
+                        <div style={{ fontSize: '10rem', fontWeight: '900', color: '#fff', textShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
+                            {countdownValue}
+                        </div>
+                    </motion.div>
+                )}
+
+                {/* 3. ACTIVE FEEDBACK BOX */}
+                {data?.status === 'ACTIVE' && (
+                    <motion.div 
+                        initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
+                        id="feedback-box" 
+                        style={{ 
+                            position: 'absolute', bottom: '50px', left: '50%', transform: 'translateX(-50%)',
+                            background: 'rgba(255,255,255,0.95)', padding: '15px 40px', borderRadius: '50px',
+                            fontSize: '1.5rem', fontWeight: '800', color: '#222', whiteSpace: 'nowrap',
+                            boxShadow: '0 20px 40px rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)',
+                            display: 'flex', alignItems: 'center', gap: '15px', border: '3px solid transparent',
+                            transition: 'all 0.3s ease'
+                        }}
+                    >
+                       {feedback.includes('MAINTAIN') ? <CheckCircle size={28}/> : <AlertCircle size={28}/>} 
+                       {feedback}
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
       </div>
     </motion.div>

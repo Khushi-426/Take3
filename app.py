@@ -1,7 +1,7 @@
 """
-Flask application with API routes
+Flask application with API routes - OPTIMIZED & ACCURATE VERSION
 """
-from flask import Flask, Response, jsonify
+from flask import Flask, Response, jsonify, request
 import cv2
 import mediapipe as mp
 import numpy as np
@@ -11,16 +11,19 @@ import os
 import random
 import string
 import requests
-import certifi # Ensure this is imported
+import certifi 
 from collections import deque
 from datetime import datetime
-from flask import Flask, Response, jsonify, request
 from flask_cors import CORS
 from dotenv import load_dotenv
 from flask_bcrypt import Bcrypt
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure
 from flask_mail import Mail, Message
+
+# --- IMPORT CUSTOM AI MODULE (CRITICAL FOR ACCURACY) ---
+# Ensure you have ai_engine.py in the same directory
+from ai_engine import AIEngine
 
 # --- 0. CONFIGURATION ---
 load_dotenv()
@@ -37,18 +40,18 @@ app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
 app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 mail = Mail(app)
 
-# --- 2. DATABASE SETUP (DOUBLE SSL FIX) ---
+# --- 2. DATABASE SETUP (ROBUST SSL) ---
 MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = "physiocheck_db"
 
 try:
-    # Use BOTH certifi AND allow invalid certs to be 100% sure it connects
+    # Robust connection logic for MongoDB Atlas
     client = MongoClient(
         MONGO_URI, 
         serverSelectionTimeoutMS=5000, 
         tls=True,
-        tlsCAFile=certifi.where(),       # Fix 1: Provide correct CA
-        tlsAllowInvalidCertificates=True # Fix 2: Bypass validation if Fix 1 fails
+        tlsCAFile=certifi.where(),       
+        tlsAllowInvalidCertificates=True 
     )
     
     # Trigger a connection check
@@ -70,19 +73,19 @@ except Exception as e:
 workout_session = None
 
 def init_session():
-    """Initialize workout session"""
+    """Initialize workout session logic"""
     global workout_session
     from workout_session import WorkoutSession
     workout_session = WorkoutSession()
 
 def generate_video_frames():
-    """Generator for video streaming using the WorkoutSession class"""
+    """Generator for video streaming"""
     from constants import WorkoutPhase
     
     if workout_session is None: return
     
     while workout_session.phase != WorkoutPhase.INACTIVE:
-        # workout_session.process_frame handles all MediaPipe, UI drawing, and phase logic
+        # process_frame handles MediaPipe inference and UI drawing
         frame, should_continue = workout_session.process_frame() 
         
         if not should_continue or frame is None:
@@ -93,13 +96,8 @@ def generate_video_frames():
         if ret:
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-# --- END VIDEO GENERATOR ---
 
-# --- 3. MEDIA PIPE SETUP (CLEANED) ---
-mp_holistic = mp.solutions.holistic
-mp_drawing = mp.solutions.drawing_utils
-
-# --- 6. AUTHENTICATION ROUTES (UNCHANGED) ---
+# --- 3. AUTHENTICATION ROUTES ---
 
 @app.route('/api/auth/send-otp', methods=['POST'])
 def send_otp():
@@ -107,9 +105,11 @@ def send_otp():
     data = request.json
     email = data.get('email')
     
+    # Check if user already exists
     if users_collection.find_one({'email': email}):
         return jsonify({'error': 'Email is already registered. Please login.'}), 400
 
+    # Generate OTP
     otp = ''.join(random.choices(string.digits, k=6))
     
     otp_collection.update_one(
@@ -120,7 +120,40 @@ def send_otp():
 
     try:
         msg = Message('PhysioCheck Verification Code', sender=app.config['MAIL_USERNAME'], recipients=[email])
-        msg.body = f"Your verification code is: {otp}\n\nThis code expires in 10 minutes."
+        
+        # --- HTML EMAIL TEMPLATE FOR BETTER UX ---
+        msg.html = f"""
+        <!DOCTYPE html>
+        <html>
+        <body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #F9F7F3;">
+            <table border="0" cellpadding="0" cellspacing="0" width="100%" style="padding: 20px;">
+                <tr>
+                    <td align="center">
+                        <table border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.05);">
+                            <tr>
+                                <td style="background: linear-gradient(135deg, #1A3C34 0%, #2C5D31 100%); padding: 40px 20px; text-align: center;">
+                                    <h1 style="color: #ffffff; margin: 0; font-size: 28px; letter-spacing: 2px;">PHYSIO<span style="color: #A5D6A7;">CHECK</span></h1>
+                                    <p style="color: #E8F5E9; margin-top: 10px;">AI-Powered Rehabilitation</p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 40px 30px;">
+                                    <h2 style="color: #1A3C34; text-align: center;">Verify Your Account</h2>
+                                    <div style="background-color: #F1F8E9; border: 2px dashed #69B341; border-radius: 12px; padding: 25px; text-align: center; margin: 20px auto;">
+                                        <span style="color: #1A3C34; font-size: 38px; font-weight: bold; letter-spacing: 10px; font-family: monospace;">{otp}</span>
+                                    </div>
+                                    <p style="color: #888888; text-align: center;">This code is valid for 10 minutes.</p>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+        </body>
+        </html>
+        """
+        msg.body = f"Your verification code is: {otp}"
+        
         mail.send(msg)
         return jsonify({'message': 'OTP sent successfully'}), 200
     except Exception as e:
@@ -140,17 +173,13 @@ def signup_verify():
     
     hashed_password = bcrypt.generate_password_hash(data['password']).decode('utf-8')
     user = {
-        'name': data['name'],
-        'email': email,
-        'password': hashed_password,
-        'role': data.get('role', 'patient'),
-        'licenseId': data.get('licenseId', None),
-        'created_at': time.time(),
-        'auth_method': 'email'
+        'name': data['name'], 'email': email, 'password': hashed_password,
+        'role': data.get('role', 'patient'), 'licenseId': data.get('licenseId', None),
+        'created_at': time.time(), 'auth_method': 'email'
     }
     users_collection.insert_one(user)
     otp_collection.delete_one({'email': email}) 
-    return jsonify({'message': 'User verified and created!', 'user': {'name': user['name'], 'role': user['role']}}), 201
+    return jsonify({'message': 'User verified', 'user': {'name': user['name'], 'role': user['role']}}), 201
 
 @app.route('/api/auth/login', methods=['POST'])
 def login():
@@ -163,10 +192,8 @@ def login():
 
     if user and bcrypt.check_password_hash(user['password'], data['password']):
         return jsonify({
-            'message': 'Login successful', 
-            'role': user['role'],
-            'name': user['name'],
-            'email': user['email']
+            'message': 'Login successful', 'role': user['role'],
+            'name': user['name'], 'email': user['email']
         }), 200
     else:
         return jsonify({'error': 'Invalid credentials'}), 401
@@ -204,21 +231,21 @@ def google_auth():
         print(f"Google Auth Error: {e}")
         return jsonify({'error': 'Authentication failed'}), 500
 
-# --- 7. PROFILE STATS ROUTES (UNCHANGED) ---
+# --- 4. ANALYTICS & AI ROUTES ---
+
 @app.route('/api/user/stats', methods=['POST'])
 def get_user_stats():
+    # Quick stats for the dashboard summary
     if sessions_collection is None: return jsonify({'error': 'DB Error'}), 503
-    
     email = request.json.get('email')
-    if not email: return jsonify({'error': 'Email required'}), 400
     
     user_sessions = list(sessions_collection.find({'email': email}))
-    
-    total_workouts = len(user_sessions)
     total_reps = sum(s.get('total_reps', 0) for s in user_sessions)
     total_duration = sum(s.get('duration', 0) for s in user_sessions)
-    
     total_errors = sum(s.get('total_errors', 0) for s in user_sessions)
+    
+    # --- ACCURACY CALCULATION ---
+    # This prevents division by zero and ensures accuracy doesn't go below 0
     accuracy = 100
     if total_reps > 0:
         accuracy = max(0, 100 - int((total_errors / total_reps) * 20))
@@ -231,93 +258,110 @@ def get_user_stats():
         })
 
     return jsonify({
-        'total_workouts': total_workouts,
+        'total_workouts': len(user_sessions),
         'total_reps': total_reps,
         'total_minutes': round(total_duration / 60, 1),
         'accuracy': accuracy,
         'graph_data': graph_data
     })
 
-# --- 9. TRACKING CONTROL ROUTES (UPDATED TO USE WorkoutSession) ---
+@app.route('/api/user/analytics_detailed', methods=['POST'])
+def get_analytics_detailed():
+    """Delegates complex analytics to AI Engine"""
+    if sessions_collection is None: return jsonify({'error': 'DB Error'}), 503
+    email = request.json.get('email')
+    
+    sessions = list(sessions_collection.find({'email': email}).sort('timestamp', 1))
+    return jsonify(AIEngine.get_detailed_analytics(sessions))
+
+@app.route('/api/user/ai_prediction', methods=['POST'])
+def get_ai_prediction():
+    """Delegates recovery prediction to AI Engine"""
+    if sessions_collection is None: return jsonify({'error': 'DB Error'}), 503
+    email = request.json.get('email')
+    
+    sessions = list(sessions_collection.find({'email': email}).sort('timestamp', 1))
+    if not sessions:
+        return jsonify({'error': 'No data'}), 404
+
+    return jsonify(AIEngine.get_recovery_prediction(sessions))
+
+# --- 5. TRACKING CONTROL ROUTES ---
 
 @app.route('/start_tracking')
 def start_tracking():
-    """Start new workout session, beginning with calibration"""
-    from constants import WorkoutPhase
     global workout_session
-
-    if workout_session and workout_session.phase != WorkoutPhase.INACTIVE:
-        return jsonify({'status': 'already_active'}), 400
+    if workout_session:
+        try: workout_session.stop()
+        except: pass
     
     try:
-        if workout_session is None:
-            init_session()
+        init_session()
         workout_session.start()
-        return jsonify({'status': 'success', 'message': 'Calibration started'})
+        return jsonify({'status': 'success', 'message': 'Session started'})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': f'Failed to start session: {e}'}), 500
-
+        return jsonify({'status': 'error', 'message': f'Failed to start: {e}'}), 500
 
 @app.route('/stop_tracking', methods=['POST'])
 def stop_tracking():
-    """Stop current workout session, clean up resources, and save data"""
+    """Stop workout and save detailed data"""
     global workout_session
-    from constants import WorkoutPhase
     
-    if not workout_session or workout_session.phase == WorkoutPhase.INACTIVE:
+    if not workout_session:
         return jsonify({'status': 'inactive'})
     
     data = request.json
     user_email = data.get('email') if data else None
     
-    report = workout_session.get_final_report()
-    workout_session.stop() 
+    # --- CRITICAL FOR ACCURACY ---
+    # We must capture WHICH exercise was done (e.g., 'Squat')
+    # If we default to 'Freestyle' for everything, accuracy stats become meaningless.
+    exercise_name = data.get('exercise', 'Freestyle') 
     
-    # Save to DB using data retrieved from workout_session
-    if user_email and sessions_collection is not None:
-        # Duration is taken from the report generated by WorkoutSession
-        duration = report.get('duration', 0)
-        right_summary = report['summary']['RIGHT']
-        left_summary = report['summary']['LEFT']
+    try:
+        report = workout_session.get_final_report()
+        workout_session.stop() 
         
-        session_doc = {
-            'email': user_email,
-            'date': datetime.now().strftime("%Y-%m-%d"),
-            'timestamp': time.time(),
-            'duration': duration,
-            'total_reps': right_summary['total_reps'] + left_summary['total_reps'],
-            'right_reps': right_summary['total_reps'],
-            'left_reps': left_summary['total_reps'],
-            'total_errors': right_summary['error_count'] + left_summary['error_count']
-        }
-        sessions_collection.insert_one(session_doc)
-        print(f"💾 Saved workout for {user_email}")
+        if user_email and sessions_collection is not None:
+            right_summary = report['summary']['RIGHT']
+            left_summary = report['summary']['LEFT']
+            
+            session_doc = {
+                'email': user_email,
+                'date': datetime.now().strftime("%Y-%m-%d"),
+                'timestamp': time.time(),
+                'exercise': exercise_name, # Storing the specific exercise type
+                'duration': report.get('duration', 0),
+                'total_reps': right_summary['total_reps'] + left_summary['total_reps'],
+                'right_reps': right_summary['total_reps'],
+                'left_reps': left_summary['total_reps'],
+                'total_errors': right_summary['error_count'] + left_summary['error_count']
+            }
+            sessions_collection.insert_one(session_doc)
+            print(f"💾 Saved '{exercise_name}' for {user_email}")
 
-    # Since the report is generated by WorkoutSession, we return it directly.
-    return jsonify({'status': 'success', 'report': report})
-
+        return jsonify({'status': 'success', 'report': report})
+    except Exception as e:
+        print(f"Error stopping session: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/video_feed')
 def video_feed():
-    """Stream video frames using the WorkoutSession process_frame method"""
     return Response(generate_video_frames(), 
-                   mimetype='multipart/x-mixed-replace; boundary=frame')
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/data_feed')
 def data_feed():
-    """Get current workout state from WorkoutSession"""
     if workout_session:
         return jsonify(workout_session.get_state_dict())
     return jsonify({'status': 'INACTIVE'})
 
 @app.route('/report_data')
 def report_data():
-    """Get final session report from WorkoutSession"""
     if workout_session:
         return jsonify(workout_session.get_final_report())
     return jsonify({'error': 'No session data available'})
 
 if __name__ == '__main__':
-    
     init_session()
     app.run(host='0.0.0.0', port=5000, debug=True)
