@@ -1,0 +1,51 @@
+# 🗑️ General & OS Files
+#############################
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+*.bak
+*.swp
+*~
+
+# 🔐 Sensitive and Local Files
+#############################
+# Environment variables (Crucial for secrets/API keys)
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# 📦 Dependencies (Node.js/npm/Yarn/pnpm)
+#############################
+/node_modules
+/jspm_packages
+
+# 🧱 Build and Distribution Output
+#############################
+/dist
+/build
+/out
+/public/build
+/coverage
+/es/
+/lib/
+/tmp
+
+# 📝 Logs and Cache
+#############################
+npm-debug.log*
+yarn-error.log
+.eslintcache
+.stylelintcache
+/cache
+logs/
+
+# 💡 Editor and IDE Specific (VS Code, IntelliJ, etc.)
+#############################
+.vscode/
+.idea/
+*.iml
+.sublime-project
+.sublime-workspace

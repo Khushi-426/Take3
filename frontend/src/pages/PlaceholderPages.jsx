@@ -113,12 +113,17 @@ export const Login = () => {
   const googleLogin = useGoogleLogin({
     onSuccess: async (tokenResponse) => {
       try {
-        const res = await axios.post('http://127.0.0.1:5000/api/auth/google', {
+        const res = await axios.post('http://127.0.0.1:5001/api/auth/google', {
           token: tokenResponse.access_token,
           role: role
         });
-        login(res.data);
-        navigate('/profile/overview');
+        login({
+          ...res.data,
+          userType: role   // 👈 THIS IS THE FIX
+        });
+        
+        navigate('/');
+        
       } catch (err) {
         setError('Google Login Failed');
       }
@@ -134,9 +139,13 @@ export const Login = () => {
     setError('');
     
     try {
-      const res = await axios.post('http://127.0.0.1:5000/api/auth/login', formData);
-      login(res.data);
-      navigate('/profile/overview');
+      const res = await axios.post('http://127.0.0.1:5001/api/auth/login', formData);
+      login({
+        ...res.data,
+        userType: role
+      });
+      
+      navigate('/');
     } catch (err) {
       setError(err.response?.data?.error || 'Login failed');
     } finally {
@@ -227,12 +236,15 @@ export const Signup = () => {
   const googleSignup = useGoogleLogin({
     onSuccess: async (tokenResponse) => {
       try {
-        const res = await axios.post('http://127.0.0.1:5000/api/auth/google', {
+        const res = await axios.post('http://127.0.0.1:5001/api/auth/google', {
           token: tokenResponse.access_token,
           role: role
         });
-        login(res.data);
-        navigate('/auth/onboarding');
+        login({
+          ...res.data,
+          userType: role
+        });
+        navigate('/');
       } catch (err) {
         setMessage('Google Signup Failed');
       }
@@ -248,7 +260,7 @@ export const Signup = () => {
     setMessage('');
 
     try {
-        await axios.post('http://127.0.0.1:5000/api/auth/send-otp', { email: formData.email });
+        await axios.post('http://127.0.0.1:5001/api/auth/send-otp', { email: formData.email });
         setOtpSent(true);
         setMessage('Verification code sent! Check your inbox.');
     } catch (err) {
@@ -265,11 +277,15 @@ export const Signup = () => {
     setMessage('');
 
     try {
-        const res = await axios.post('http://127.0.0.1:5000/api/auth/signup-verify', {
+        const res = await axios.post('http://127.0.0.1:5001/api/auth/signup-verify', {
             ...formData, otp: otpValue, role
         });
-        login(res.data.user);
-        navigate('/auth/onboarding');
+        login({
+          ...res.data.user,
+          userType: role
+        });
+        
+        navigate('/');
     } catch (err) {
         setMessage(err.response?.data?.error || 'Verification failed');
         setIsLoading(false); // Only stop loading on error, on success we navigate away
