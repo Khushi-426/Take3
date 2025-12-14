@@ -25,7 +25,7 @@ class WorkoutSession:
         from models import ArmMetrics, CalibrationData, SessionHistory
         from angle_calculator import AngleCalculator
         from pose_processor import PoseProcessor
-        from calibration import CalibrationManager # IMPORTANT
+        from calibration import CalibrationManager
         from rep_counter import RepCounter
         
         # Load the configuration for the selected exercise
@@ -278,7 +278,10 @@ class WorkoutSession:
     
     def get_state_dict(self) -> dict:
         """Get current state as dictionary for API"""
+        # <<< CRITICAL FIX: Include dynamic joint name and exercise name in state dict >>>
         return {
+            'exercise_name': self.exercise_config.name,
+            'tracked_joint_name': self.exercise_config.joint_to_track.value.title(),
             'RIGHT': self.arm_metrics['RIGHT'].to_dict(),
             'LEFT': self.arm_metrics['LEFT'].to_dict(),
             'status': self.phase.value,
@@ -293,7 +296,6 @@ class WorkoutSession:
     def get_final_report(self) -> dict:
         """Generate final session report"""
         return {
-            # <<< CRITICAL FIX: Include the exercise name in the report data >>>
             'exercise_name': self.exercise_config.name, 
             'duration': round(self.history.time[-1] if self.history.time else 0, 2),
             'summary': {

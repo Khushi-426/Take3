@@ -38,7 +38,7 @@ const Tracker = () => {
 
   // --- STATES ---
   const [viewMode, setViewMode] = useState("LIBRARY");
-  const [exercises, setExercises] = useState([]); // State for fetched exercises
+  const [exercises, setExercises] = useState([]);
   const [selectedExercise, setSelectedExercise] = useState(null);
 
   const [active, setActive] = useState(false);
@@ -60,7 +60,6 @@ const Tracker = () => {
 
   // --- 1. SETUP SOCKET CONNECTION & FETCH EXERCISES ---
   useEffect(() => {
-    // Socket Setup (Existing Logic)
     const newSocket = io("http://localhost:5000");
     setSocket(newSocket);
 
@@ -73,11 +72,8 @@ const Tracker = () => {
       setConnectionStatus("DISCONNECTED");
     });
 
-    // <<< CRITICAL FIX: Ensure navigation happens when the backend confirms STOP >>>
     newSocket.on("session_stopped", () => {
-      // Stop the frontend timer
       clearInterval(timerRef.current);
-      // Navigate to the Report page
       navigate("/report");
     });
 
@@ -228,7 +224,6 @@ const Tracker = () => {
         email: user?.email,
         exercise: selectedExercise?.title || "Freestyle",
       });
-      // Frontend state cleanup is handled upon receiving 'session_stopped' event
       setActive(false);
     }
   };
@@ -540,8 +535,6 @@ const Tracker = () => {
                   return;
                 }
                 setViewMode("SESSION");
-                // Note: The /track route in App.jsx is used for the entire Tracker component,
-                // but the session starts via an internal API call here.
                 startSession();
               }}
               style={{
@@ -596,396 +589,400 @@ const Tracker = () => {
   };
 
   // --- RENDER SESSION ---
-  const renderSession = () => (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      style={{
-        height: "100vh",
-        display: "flex",
-        overflow: "hidden",
-        background: "var(--bg-color)",
-      }}
-    >
-      {/* Sidebar */}
-      <div
+  const renderSession = () => {
+    // Determine the joint name based on the live data (Hip, Knee, Elbow, etc.)
+    const jointName = data?.tracked_joint_name || "JOINT";
+
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
         style={{
-          width: "340px",
-          background: "#fff",
-          borderRight: "1px solid #eee",
+          height: "100vh",
           display: "flex",
-          flexDirection: "column",
-          zIndex: 10,
+          overflow: "hidden",
+          background: "var(--bg-color)",
         }}
       >
+        {/* Sidebar */}
         <div
           style={{
-            padding: "30px",
-            borderBottom: "1px solid #eee",
-            textAlign: "center",
+            width: "340px",
+            background: "#fff",
+            borderRight: "1px solid #eee",
+            display: "flex",
+            flexDirection: "column",
+            zIndex: 10,
           }}
         >
           <div
             style={{
-              fontSize: "0.8rem",
-              color: "#888",
-              fontWeight: "700",
-              letterSpacing: "1px",
-              marginBottom: "8px",
-              textTransform: "uppercase",
-              display: "flex",
-              justifyContent: "space-between",
+              padding: "30px",
+              borderBottom: "1px solid #eee",
+              textAlign: "center",
             }}
           >
-            <span>{selectedExercise?.title}</span>
-            <div style={{ display: "flex", gap: "10px" }}>
-              <button
-                onClick={() => setSoundEnabled(!soundEnabled)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  color: soundEnabled ? "#2C5D31" : "#ccc",
-                }}
-                title={soundEnabled ? "Mute Voice" : "Enable Voice"}
-              >
-                {soundEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
-              </button>
-              {connectionStatus === "CONNECTED" ? (
-                <Wifi size={16} color="#69B341" title="Connected" />
-              ) : (
-                <WifiOff size={16} color="#D32F2F" title="Disconnected" />
-              )}
+            <div
+              style={{
+                fontSize: "0.8rem",
+                color: "#888",
+                fontWeight: "700",
+                letterSpacing: "1px",
+                marginBottom: "8px",
+                textTransform: "uppercase",
+                display: "flex",
+                justifyContent: "space-between",
+              }}
+            >
+              <span>{selectedExercise?.title}</span>
+              <div style={{ display: "flex", gap: "10px" }}>
+                <button
+                  onClick={() => setSoundEnabled(!soundEnabled)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    color: soundEnabled ? "#2C5D31" : "#ccc",
+                  }}
+                  title={soundEnabled ? "Mute Voice" : "Enable Voice"}
+                >
+                  {soundEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
+                </button>
+                {connectionStatus === "CONNECTED" ? (
+                  <Wifi size={16} color="#69B341" title="Connected" />
+                ) : (
+                  <WifiOff size={16} color="#D32F2F" title="Disconnected" />
+                )}
+              </div>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "10px",
+                color: "#2C5D31",
+                fontSize: "2.5rem",
+                fontWeight: "800",
+              }}
+            >
+              <Timer size={32} />
+              {formatTime(sessionTime)}
             </div>
           </div>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "10px",
-              color: "#2C5D31",
-              fontSize: "2.5rem",
-              fontWeight: "800",
-            }}
-          >
-            <Timer size={32} />
-            {formatTime(sessionTime)}
-          </div>
-        </div>
 
-        <div style={{ flex: 1, overflowY: "auto", padding: "25px" }}>
-          {["RIGHT", "LEFT"].map((arm) => {
-            const metrics = data ? data[arm] : null;
-            return (
-              <div
-                key={arm}
-                style={{
-                  marginBottom: "25px",
-                  background: "#f8f9fa",
-                  borderRadius: "18px",
-                  padding: "20px",
-                  border: "1px solid #eee",
-                }}
-              >
-                <h3
-                  style={{
-                    margin: "0 0 15px 0",
-                    color: "#444",
-                    fontSize: "0.85rem",
-                    fontWeight: "800",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    borderBottom: "1px solid #eee",
-                    paddingBottom: "10px",
-                  }}
-                >
-                  {arm} ARM
-                  <span style={{ color: "#2C5D31" }}>
-                    {metrics ? metrics.stage : "--"}
-                  </span>
-                </h3>
+          <div style={{ flex: 1, overflowY: "auto", padding: "25px" }}>
+            {["RIGHT", "LEFT"].map((arm) => {
+              const metrics = data ? data[arm] : null;
+              return (
                 <div
+                  key={arm}
                   style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "baseline",
-                    marginBottom: "15px",
+                    marginBottom: "25px",
+                    background: "#f8f9fa",
+                    borderRadius: "18px",
+                    padding: "20px",
+                    border: "1px solid #eee",
                   }}
                 >
-                  <div style={{ textAlign: "center" }}>
-                    <div
-                      style={{
-                        fontSize: "0.7rem",
-                        color: "#aaa",
-                        fontWeight: "700",
-                      }}
-                    >
-                      REPS
-                    </div>
-                    <div
-                      style={{
-                        fontSize: "2.2rem",
-                        fontWeight: "800",
-                        color: "#222",
-                      }}
-                    >
-                      {metrics ? metrics.rep_count : "--"}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: "center" }}>
-                    <div
-                      style={{
-                        fontSize: "0.7rem",
-                        color: "#aaa",
-                        fontWeight: "700",
-                      }}
-                    >
-                      ANGLE
-                    </div>
-                    <div
-                      style={{
-                        fontSize: "2.2rem",
-                        fontWeight: "800",
-                        fontFamily: "monospace",
-                        color: "#222",
-                      }}
-                    >
-                      {metrics ? metrics.angle : "--"}°
-                    </div>
-                  </div>
-                </div>
-                <div
-                  style={{
-                    height: "6px",
-                    background: "#e0e0e0",
-                    borderRadius: "4px",
-                    overflow: "hidden",
-                  }}
-                >
+                  <h3
+                    style={{
+                      margin: "0 0 15px 0",
+                      color: "#444",
+                      fontSize: "0.85rem",
+                      fontWeight: "800",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      borderBottom: "1px solid #eee",
+                      paddingBottom: "10px",
+                    }}
+                  >
+                    {/* <<< CRITICAL FIX: Dynamically display ARM/SIDE and JOINT NAME >>> */}
+                    {arm} {jointName.toUpperCase()}
+                    <span style={{ color: "#2C5D31" }}>
+                      {metrics ? metrics.stage : "--"}
+                    </span>
+                  </h3>
                   <div
                     style={{
-                      width: metrics ? `${(metrics.angle / 180) * 100}%` : "0%",
-                      height: "100%",
-                      background: "#2C5D31",
-                      transition: "width 0.1s linear",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "baseline",
+                      marginBottom: "15px",
                     }}
-                  />
+                  >
+                    <div style={{ textAlign: "center" }}>
+                      <div
+                        style={{
+                          fontSize: "0.7rem",
+                          color: "#aaa",
+                          fontWeight: "700",
+                        }}
+                      >
+                        REPS
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "2.2rem",
+                          fontWeight: "800",
+                          color: "#222",
+                        }}
+                      >
+                        {metrics ? metrics.rep_count : "--"}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "center" }}>
+                      <div
+                        style={{
+                          fontSize: "0.7rem",
+                          color: "#aaa",
+                          fontWeight: "700",
+                        }}
+                      >
+                        ANGLE
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "2.2rem",
+                          fontWeight: "800",
+                          fontFamily: "monospace",
+                          color: "#222",
+                        }}
+                      >
+                        {metrics ? metrics.angle : "--"}°
+                      </div>
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      height: "6px",
+                      background: "#e0e0e0",
+                      borderRadius: "4px",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: metrics
+                          ? `${(metrics.angle / 180) * 100}%`
+                          : "0%",
+                        height: "100%",
+                        background: "#2C5D31",
+                        transition: "width 0.1s linear",
+                      }}
+                    />
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
 
-        <div style={{ padding: "25px", borderTop: "1px solid #eee" }}>
-          <button
-            onClick={stopSession}
-            style={{
-              width: "100%",
-              padding: "16px",
-              borderRadius: "50px",
-              border: "none",
-              fontWeight: "800",
-              cursor: "pointer",
-              fontSize: "1rem",
-              background: "#D32F2F",
-              color: "#fff",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "10px",
-              boxShadow: "0 8px 20px rgba(211, 47, 47, 0.3)",
-            }}
-          >
-            <StopCircle size={20} /> END SESSION
-          </button>
-        </div>
-      </div>
-
-      {/* Camera Feed Area */}
-      <div
-        style={{
-          flex: 1,
-          position: "relative",
-          background: "#222",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          overflow: "hidden",
-        }}
-      >
-        <div style={{ width: "100%", height: "100%", position: "relative" }}>
-          {active ? (
-            <img
-              src={`http://localhost:5000/video_feed?t=${videoTimestamp}`}
-              style={{ width: "100%", height: "100%", objectFit: "contain" }}
-              alt="Stream"
-            />
-          ) : (
-            <div
+          <div style={{ padding: "25px", borderTop: "1px solid #eee" }}>
+            <button
+              onClick={stopSession}
               style={{
-                color: "white",
-                position: "absolute",
-                inset: 0,
+                width: "100%",
+                padding: "16px",
+                borderRadius: "50px",
+                border: "none",
+                fontWeight: "800",
+                cursor: "pointer",
+                fontSize: "1rem",
+                background: "#D32F2F",
+                color: "#fff",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
+                gap: "10px",
+                boxShadow: "0 8px 20px rgba(211, 47, 47, 0.3)",
               }}
             >
-              Initializing Camera...
-            </div>
-          )}
+              <StopCircle size={20} /> END SESSION
+            </button>
+          </div>
+        </div>
 
-          {/* REFERENCE SKELETON OVERLAY (For Calibration) */}
-          {data?.status === "CALIBRATION" && (
-            <div
-              style={{
-                position: "absolute",
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -50%)",
-                width: "300px",
-                height: "500px",
-                pointerEvents: "none",
-                opacity: 0.6,
-                border: "4px dashed rgba(255,255,255,0.5)",
-                borderRadius: "150px 150px 0 0",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <User size={120} color="rgba(255,255,255,0.5)" />
+        {/* Camera Feed Area */}
+        <div
+          style={{
+            flex: 1,
+            position: "relative",
+            background: "#222",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            overflow: "hidden",
+          }}
+        >
+          <div style={{ width: "100%", height: "100%", position: "relative" }}>
+            {active ? (
+              <img
+                src={`http://localhost:5000/video_feed?t=${videoTimestamp}`}
+                style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                alt="Stream"
+              />
+            ) : (
               <div
                 style={{
-                  position: "absolute",
-                  bottom: "-40px",
-                  color: "#fff",
-                  background: "rgba(0,0,0,0.5)",
-                  padding: "5px 10px",
-                  borderRadius: "10px",
-                }}
-              >
-                Align Here
-              </div>
-            </div>
-          )}
-
-          {/* OVERLAYS */}
-          <AnimatePresence>
-            {/* 1. CALIBRATION OVERLAY - TRANSPARENT NOW */}
-            {data?.status === "CALIBRATION" && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  background: "rgba(0,0,0,0.1)", // More Transparent
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "flex-start",
-                  paddingTop: "50px",
-                }}
-              >
-                <h2
-                  style={{
-                    color: "#fff",
-                    fontSize: "2rem",
-                    marginBottom: "20px",
-                    textShadow: "0 2px 10px rgba(0,0,0,0.8)",
-                  }}
-                >
-                  {feedback}
-                </h2>
-                <div
-                  style={{
-                    width: "60%",
-                    height: "12px",
-                    background: "rgba(255,255,255,0.2)",
-                    borderRadius: "6px",
-                    overflow: "hidden",
-                  }}
-                >
-                  <motion.div
-                    animate={{ width: `${calibrationProgress}%` }}
-                    style={{ height: "100%", background: "#00E676" }}
-                  />
-                </div>
-              </motion.div>
-            )}
-
-            {/* 2. COUNTDOWN OVERLAY */}
-            {data?.status === "COUNTDOWN" && (
-              <motion.div
-                initial={{ scale: 0.5, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 1.5, opacity: 0 }}
-                key={countdownValue}
-                style={{
+                  color: "white",
                   position: "absolute",
                   inset: 0,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  background: "rgba(0,0,0,0.2)",
                 }}
               >
-                <div
-                  style={{
-                    fontSize: "10rem",
-                    fontWeight: "900",
-                    color: "#fff",
-                    textShadow: "0 10px 30px rgba(0,0,0,0.5)",
-                  }}
-                >
-                  {countdownValue}
-                </div>
-              </motion.div>
+                Initializing Camera...
+              </div>
             )}
 
-            {/* 3. ACTIVE FEEDBACK BOX */}
-            {data?.status === "ACTIVE" && (
-              <motion.div
-                initial={{ y: 50, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                id="feedback-box"
+            {/* REFERENCE SKELETON OVERLAY (For Calibration) */}
+            {data?.status === "CALIBRATION" && (
+              <div
                 style={{
                   position: "absolute",
-                  bottom: "50px",
+                  top: "50%",
                   left: "50%",
-                  transform: "translateX(-50%)",
-                  background: "rgba(255,255,255,0.95)",
-                  padding: "15px 40px",
-                  borderRadius: "50px",
-                  fontSize: "1.5rem",
-                  fontWeight: "800",
-                  color: "#222",
-                  whiteSpace: "nowrap",
-                  boxShadow: "0 20px 40px rgba(0,0,0,0.3)",
-                  backdropFilter: "blur(10px)",
+                  transform: "translate(-50%, -50%)",
+                  width: "300px",
+                  height: "500px",
+                  pointerEvents: "none",
+                  opacity: 0.6,
+                  border: "4px dashed rgba(255,255,255,0.5)",
+                  borderRadius: "150px 150px 0 0",
                   display: "flex",
                   alignItems: "center",
-                  gap: "15px",
-                  border: "3px solid transparent",
-                  transition: "all 0.3s ease",
+                  justifyContent: "center",
                 }}
               >
-                {feedback.includes("MAINTAIN") ? (
-                  <CheckCircle size={28} />
-                ) : (
-                  <AlertCircle size={28} />
-                )}
-                {feedback}
-              </motion.div>
+                <User size={120} color="rgba(255,255,255,0.5)" />
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: "-40px",
+                    color: "#fff",
+                    background: "rgba(0,0,0,0.5)",
+                    padding: "5px 10px",
+                    borderRadius: "10px",
+                  }}
+                >
+                  Align Here
+                </div>
+              </div>
             )}
-          </AnimatePresence>
+
+            {/* OVERLAYS */}
+            <AnimatePresence>
+              {/* 1. CALIBRATION OVERLAY - TRANSPARENT NOW */}
+              {data?.status === "CALIBRATION" && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    background: "rgba(0,0,0,0.1)", // More Transparent
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "flex-start",
+                    paddingTop: "50px",
+                  }}
+                >
+                  <h2
+                    style={{
+                      color: "#fff",
+                      fontSize: "2rem",
+                      marginBottom: "20px",
+                      textShadow: "0 2px 10px rgba(0,0,0,0.8)",
+                    }}
+                  >
+                    {feedback}
+                  </h2>
+                  <div
+                    style={{
+                      width: "60%",
+                      height: "12px",
+                      background: "rgba(255,255,255,0.2)",
+                      borderRadius: "6px",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <motion.div
+                      animate={{ width: `${calibrationProgress}%` }}
+                      style={{ height: "100%", background: "#00E676" }}
+                    />
+                  </div>
+                </motion.div>
+              )}
+
+              {/* 2. COUNTDOWN OVERLAY */}
+              {data?.status === "COUNTDOWN" && (
+                <motion.div
+                  initial={{ scale: 0.5, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 1.5, opacity: 0 }}
+                  key={countdownValue}
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: "rgba(0,0,0,0.2)",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "10rem",
+                      fontWeight: "900",
+                      color: "#fff",
+                      textShadow: "0 10px 30px rgba(0,0,0,0.5)",
+                    }}
+                  >
+                    {countdownValue}
+                  </div>
+                </motion.div>
+              )}
+
+              {/* 3. ACTIVE FEEDBACK BOX */}
+              {data?.status === "ACTIVE" && (
+                <motion.div
+                  initial={{ y: 50, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  id="feedback-box"
+                  style={{
+                    position: "absolute",
+                    bottom: "50px",
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    background: "rgba(255,255,255,0.95)",
+                    padding: "15px 40px",
+                    borderRadius: "50px",
+                    fontSize: "1.5rem",
+                    fontWeight: "800",
+                    color: "#222",
+                    whiteSpace: "nowrap",
+                    boxShadow: "0 20px 40px rgba(0,0,0,0.3)",
+                    backdropFilter: "blur(10px)",
+                    transition: "all 0.3s ease",
+                  }}
+                >
+                  {feedback.includes("MAINTAIN") ? (
+                    <CheckCircle size={28} />
+                  ) : (
+                    <AlertCircle size={28} />
+                  )}
+                  {feedback}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
-      </div>
-    </motion.div>
-  );
+      </motion.div>
+    );
+  };
 
   return (
     <div style={{ background: "#F9F7F3", minHeight: "100vh" }}>

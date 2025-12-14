@@ -8,7 +8,7 @@ import {
   AlertTriangle,
   ChevronDown,
 } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 
 // Component to display the final workout report
 const Report = () => {
@@ -23,19 +23,25 @@ const Report = () => {
         // Fetch report data from the backend's dedicated endpoint
         const response = await fetch("http://localhost:5000/report_data");
         if (!response.ok) {
+          // Check for non-200 status codes
           throw new Error(`HTTP error! status: ${response.status}`);
         }
         const data = await response.json();
 
-        if (data.error) {
-          setError(data.error);
+        if (data.error || !data.exercise_name) {
+          // Check if the endpoint explicitly returned an error or is missing critical data
+          setError(
+            data.error ||
+              "Report data is missing key fields (like exercise name)."
+          );
         } else {
           setReport(data);
         }
       } catch (e) {
         console.error("Failed to fetch report data:", e);
+        // Set a specific error message if the fetch fails completely
         setError(
-          "Could not retrieve session report. Please check the backend connection."
+          `Could not retrieve session report: ${e.message}. Is the Flask server running?`
         );
       } finally {
         setLoading(false);
@@ -93,16 +99,41 @@ const Report = () => {
   }
 
   if (error) {
+    // Highly visible error message if fetch failed
     return (
       <div
         style={{
           textAlign: "center",
-          padding: "100px",
-          fontSize: "1.2rem",
-          color: "#D32F2F",
+          padding: "50px",
+          margin: "50px auto",
+          maxWidth: "600px",
+          backgroundColor: "#FFEBEE",
+          border: "2px solid #D32F2F",
+          borderRadius: "15px",
         }}
       >
-        Error: {error}
+        <AlertTriangle
+          color="#D32F2F"
+          size={30}
+          style={{ marginBottom: "15px" }}
+        />
+        <h2 style={{ color: "#D32F2F", marginBottom: "10px" }}>
+          Report Load Error
+        </h2>
+        <p style={{ color: "#555", fontSize: "0.9rem" }}>{error}</p>
+        <button
+          onClick={() => navigate("/")}
+          style={{
+            marginTop: "20px",
+            padding: "10px 20px",
+            background: "#D32F2F",
+            color: "white",
+            border: "none",
+            borderRadius: "5px",
+          }}
+        >
+          Go Home
+        </button>
       </div>
     );
   }
@@ -117,7 +148,7 @@ const Report = () => {
           color: "#888",
         }}
       >
-        No session data found.
+        No session data found. Did you complete a workout?
       </div>
     );
   }
@@ -176,7 +207,7 @@ const Report = () => {
         </button>
       </div>
 
-      {/* Title - CRITICAL FIX: Use the dynamic exercise name */}
+      {/* Title - Shows the specific exercise name */}
       <h1
         style={{
           fontSize: "2.5rem",
@@ -185,7 +216,7 @@ const Report = () => {
           marginBottom: "10px",
         }}
       >
-        {report.exercise_name || "Workout"} Report
+        {report.exercise_name} Report
       </h1>
       <p style={{ color: "#4A635D", fontSize: "1.1rem", marginBottom: "30px" }}>
         Detailed breakdown of your performance from the session completed on{" "}
@@ -329,9 +360,8 @@ const SummaryRow = ({ label, value, color }) => (
 const CalibrationDetail = ({ data }) => {
   const [isOpen, setIsOpen] = useState(false);
 
-  // Determine the tracked joint name (e.g., Elbow, Knee) based on common defaults or external mapping
-  // Since we don't have the exercise_config here, we default to the joint relevant to bicep/tricep movement,
-  // but the actual angle data (the numbers) are correct from the backend.
+  // NOTE: This assumes the report data doesn't include the specific joint name.
+  // However, the *values* are correct for the joint that was calibrated.
   const jointName = "Joint Angle";
 
   return (
