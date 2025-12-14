@@ -1,4 +1,5 @@
 """
+Flask application with API routes - OPTIMIZED & AGNOSTIC VERSION
 Flask application - FULLY INTEGRATED DYNAMIC DASHBOARD VERSION
 """
 from flask import Flask, Response, jsonify, request
@@ -23,18 +24,25 @@ from flask_mail import Mail, Message
 from flask_socketio import SocketIO, emit 
 from bson.objectid import ObjectId # Required for MongoDB ID handling
 
+
 # --- IMPORT CUSTOM AI MODULE (CRITICAL FOR ACCURACY) ---
 from ai_engine import AIEngine
+from constants import EXERCISE_PRESETS 
+
 
 # --- 0. CONFIGURATION ---
 load_dotenv()
+
 
 app = Flask(__name__)
 CORS(app)
 bcrypt = Bcrypt(app)
 
+
+# [Change] Initialize SocketIO with async_mode to ensure non-blocking behavior
 # Initialize SocketIO with async_mode to ensure non-blocking behavior
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+
 
 # --- 1. MAIL CONFIGURATION ---
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
@@ -44,16 +52,18 @@ app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
 app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 mail = Mail(app)
 
+
 # --- 2. DATABASE SETUP ---
 MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = "physiocheck_db"
+
 
 try:
     client = MongoClient(
         MONGO_URI, 
         serverSelectionTimeoutMS=5000, 
         tls=True,
-        tlsCAFile=certifi.where(),       
+        tlsCAFile=certifi.where(),      
         tlsAllowInvalidCertificates=True 
     )
     client.admin.command('ping') 
@@ -77,14 +87,18 @@ except Exception as e:
     otp_collection = None
     sessions_collection = None
 
+
 # Global session instance
 workout_session = None
 
-def init_session():
+
+# [Change] Modified to accept exercise_name
+def init_session(exercise_name="Bicep Curl"): 
     """Initialize workout session logic"""
     global workout_session
     from workout_session import WorkoutSession
-    workout_session = WorkoutSession()
+    # Pass the exercise name to WorkoutSession
+    workout_session = WorkoutSession(exercise_name) 
 
 def generate_video_frames():
     """Generator for video streaming & WebSocket Data Push"""
@@ -103,22 +117,54 @@ def generate_video_frames():
         socketio.emit('workout_update', workout_session.get_state_dict())
         socketio.sleep(0.01) # Yield control for 10ms
 
+
         # Encode frame
         ret, buffer = cv2.imencode('.jpg', frame)
         if ret:
             yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+                    b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+
+
+# --- HELPER: EXERCISE DATA FOR FRONTEND (FIXED) ---
+def _get_frontend_exercise_list():
+    """Generates a list of exercises with mock data for the frontend UI."""
+    # Mock data for UI presentation properties (category, instructions, etc.)
+    # The exercise keys must match the keys in EXERCISE_PRESETS from constants.py
+    exercise_map = {
+        "Bicep Curl": {"id": "bicep_curl", "category": "Strength • Arms", "duration": "5 Mins", "difficulty": "Beginner", "recommended": True, "description": "A fundamental exercise for building upper arm strength and stability.", "instructions": ["Stand with feet shoulder-width apart.", "Keep elbows close to your torso at all times.", "Contract biceps to curl weights upwards.", "Lower slowly to starting position.", "Avoid swinging your body."], "color": '#E8F5E9', "iconColor": '#2C5D31', "video": "/bicep_demo.mp4"},
+        "Knee Lift": {"id": "knee_lift", "category": "Core • Legs", "duration": "5 Mins", "difficulty": "Beginner", "recommended": False, "description": "Strengthens core and hip flexors for better stability.", "instructions": ["Stand tall, lift one knee to waist height.", "Hold for 3 seconds.", "Return slowly and repeat on the other side.", "Maintain an upright posture."], "color": '#E3F2FD', "iconColor": '#1E88E5', "video": "/knee_lift_demo.mp4"},
+        "Shoulder Press": {"id": "shoulder_press", "category": "Mobility • Shoulders", "duration": "8 Mins", "difficulty": "Intermediate", "recommended": False, "description": "Overhead press to improve shoulder mobility and strength.", "instructions": ["Hold weights at shoulder level with palms facing forward.", "Push weights up until arms are fully extended.", "Lower back down slowly to the starting position.", "Keep your back straight throughout."], "color": '#FFF3E0', "iconColor": '#EF6C00', "video": "/shoulder_press_demo.mp4"},
+        "Squat": {"id": "squat", "category": "Strength • Legs", "duration": "10 Mins", "difficulty": "Intermediate", "recommended": True, "description": "A full-body exercise for lower body strength and depth control.", "instructions": ["Stand with feet shoulder-width apart.", "Lower hips as if sitting in a chair.", "Keep your chest up and back straight.", "Ensure knees track over your toes."], "color": '#FBEFF5', "iconColor": '#AD1457', "video": "/squat_demo.mp4"},
+        "Standing Row": {"id": "standing_row", "category": "Strength • Back", "duration": "7 Mins", "difficulty": "Intermediate", "recommended": False, "description": "Targets the upper back and lats for improved posture and pulling strength.", "instructions": ["Stand with slight knee bend and hinge at the hips.", "Pull arms back, squeezing shoulder blades together.", "Keep elbows close to the body.", "Slowly extend arms to the starting position."], "color": '#F3E5F5', "iconColor": '#6A1B9A', "video": "/standing_row_demo.mp4"},
+    }
+
+    exercise_list = []
+    # Loop through the list of exercises defined in your constants.py file
+    for name in EXERCISE_PRESETS:
+        ui_data = exercise_map.get(name, {})
+        # Create a combined object for the frontend
+        exercise_list.append({
+            'id': name.lower().replace(' ', '_'),
+            'title': name, 
+            **ui_data
+        })
+    return [e for e in exercise_list if 'title' in e]
+
 
 # --- 3. SOCKET EVENTS ---
+
 
 @socketio.on('connect')
 def handle_connect():
     print('Client connected')
 
+
 @socketio.on('disconnect')
 def handle_disconnect():
     print('Client disconnected')
 
+
+# [Change] Socket-based Stop command 
 @socketio.on('stop_session')
 def handle_stop_session(data):
     print("Received stop command via Socket")
@@ -154,134 +200,9 @@ def handle_stop_session(data):
     except Exception as e:
         print(f"Error stopping session: {e}")
 
-# ==========================================
-#       THERAPIST API ENDPOINTS (NEW)
-# ==========================================
 
-# 1. PATIENT MONITORING (Dynamic)
-@app.route('/api/therapist/patients', methods=['GET'])
-def get_patients():
-    """Fetch all patients with dynamically calculated risk status"""
-    if users_collection is None:
-        return jsonify({'error': 'Database unavailable'}), 503
+# --- 4. HTTP ROUTES ---
 
-    try:
-        cursor = users_collection.find({'role': 'patient'}, {'password': 0})
-        patients_list = []
-        for user in cursor:
-            email = user.get('email', '')
-            
-            # Fetch sessions to calculate real stats
-            user_sessions = list(sessions_collection.find({'email': email}).sort('timestamp', -1))
-            
-            status = "Stable"
-            compliance = 0
-            last_session_str = "Never"
-            
-            if user_sessions:
-                last_sess = user_sessions[0]
-                total_reps = last_sess.get('total_reps', 0)
-                errors = last_sess.get('total_errors', 0)
-                
-                if total_reps > 0:
-                    accuracy = max(0, 100 - int((errors / total_reps) * 20))
-                    compliance = accuracy
-                
-                # Determine Status
-                if compliance < 50: status = "High Risk"
-                elif compliance < 80: status = "Alert"
-                else: status = "Stable"
-
-                try:
-                    ts = last_sess.get('timestamp')
-                    last_session_str = datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M')
-                except:
-                    last_session_str = "Unknown"
-
-            patients_list.append({
-                'id': str(user['_id']),
-                'name': user.get('name', 'Unknown'),
-                'email': email,
-                'status': status,
-                'compliance': compliance,
-                'last_session': last_session_str
-            })
-            
-        return jsonify({'patients': patients_list}), 200
-
-    except Exception as e:
-        print(f"Error fetching patients: {e}")
-        return jsonify({'error': str(e)}), 500
-
-# 2. EXERCISE LIBRARY (Dynamic)
-@app.route('/api/therapist/exercises', methods=['GET', 'POST'])
-def manage_exercises():
-    """Fetch or Add Exercises to the Library"""
-    if request.method == 'GET':
-        exercises = list(exercises_collection.find())
-        for ex in exercises:
-            ex['id'] = str(ex['_id'])
-            del ex['_id']
-        return jsonify(exercises), 200
-    
-    if request.method == 'POST':
-        data = request.json
-        new_exercise = {
-            'name': data.get('name'),
-            'category': data.get('category'),
-            'difficulty': data.get('difficulty'),
-            'description': data.get('description', ''),
-            'created_at': time.time()
-        }
-        result = exercises_collection.insert_one(new_exercise)
-        return jsonify({'message': 'Exercise added', 'id': str(result.inserted_id)}), 201
-
-# 3. PROTOCOLS (Dynamic)
-@app.route('/api/therapist/protocols', methods=['GET', 'POST'])
-def manage_protocols():
-    """Fetch or Create Treatment Protocols"""
-    if request.method == 'GET':
-        protocols = list(protocols_collection.find())
-        for p in protocols:
-            p['id'] = str(p['_id'])
-            del p['_id']
-        return jsonify(protocols), 200
-
-    if request.method == 'POST':
-        data = request.json
-        new_protocol = {
-            'name': data.get('name'),
-            'exercises': data.get('exercises', []), # List of exercise objects
-            'assigned_patients': data.get('assigned_patients', []), # List of emails
-            'created_at': time.time(),
-            'last_updated': datetime.now().strftime("%Y-%m-%d")
-        }
-        protocols_collection.insert_one(new_protocol)
-        
-        # Log Notification automatically
-        notifications_collection.insert_one({
-            'type': 'Protocol Created',
-            'message': f"New protocol '{new_protocol['name']}' created and assigned to {len(new_protocol['assigned_patients'])} patients.",
-            'timestamp': time.time()
-        })
-        return jsonify({'message': 'Protocol created'}), 201
-
-# 4. NOTIFICATIONS (Dynamic)
-@app.route('/api/therapist/notifications', methods=['GET'])
-def get_notifications():
-    """Fetch system logs/notifications"""
-    # Get last 50 notifications, newest first
-    notifs = list(notifications_collection.find().sort('timestamp', -1).limit(50))
-    for n in notifs:
-        n['id'] = str(n['_id'])
-        del n['_id']
-        n['date'] = datetime.fromtimestamp(n['timestamp']).strftime('%Y-%m-%d %H:%M')
-    return jsonify(notifs), 200
-
-
-# ==========================================
-#       AUTH & USER ROUTES (EXISTING)
-# ==========================================
 
 @app.route('/api/auth/send-otp', methods=['POST'])
 def send_otp():
@@ -299,6 +220,7 @@ def send_otp():
         return jsonify({'message': 'OTP sent successfully'}), 200
     except Exception as e:
         return jsonify({'error': 'Failed to send email.'}), 500
+
 
 @app.route('/api/auth/signup-verify', methods=['POST'])
 def signup_verify():
@@ -320,6 +242,7 @@ def signup_verify():
     otp_collection.delete_one({'email': data['email']}) 
     return jsonify({'message': 'User verified', 'user': {'name': user['name'], 'role': user['role']}}), 201
 
+
 @app.route('/api/auth/login', methods=['POST'])
 def login():
     if users_collection is None: return jsonify({'error': 'Database unavailable'}), 503
@@ -333,6 +256,7 @@ def login():
             'email': user['email']
         }), 200
     return jsonify({'error': 'Invalid credentials'}), 401
+
 
 @app.route('/api/auth/google', methods=['POST'])
 def google_auth():
@@ -380,6 +304,7 @@ def get_user_stats():
         'graph_data': [{'date': s.get('date'), 'reps': s.get('total_reps', 0)} for s in user_sessions[-7:]]
     })
 
+
 @app.route('/api/user/analytics_detailed', methods=['POST'])
 def get_analytics_detailed():
     if sessions_collection is None: 
@@ -389,6 +314,61 @@ def get_analytics_detailed():
         email = request.json.get('email')
         if not email:
             return jsonify({'error': 'Email required'}), 400
+
+
+@app.route('/api/user/ai_prediction', methods=['POST'])
+def get_ai_prediction():
+    if sessions_collection is None: return jsonify({'error': 'DB Error'}), 503
+    sessions = list(sessions_collection.find({'email': request.json.get('email')}).sort('timestamp', 1))
+    return jsonify(AIEngine.get_recovery_prediction(sessions) if sessions else {'error': 'No data'})
+
+
+@app.route('/api/exercises', methods=['GET']) 
+def get_exercises():
+    """Returns the list of configured exercises for the frontend."""
+    return jsonify(_get_frontend_exercise_list()), 200
+
+
+@app.route('/start_tracking', methods=['GET', 'POST']) 
+def start_tracking():
+    global workout_session
+    
+    exercise_name = 'Bicep Curl' # Default exercise
+    
+    # Try to get exercise name from JSON body if it's a POST request
+    if request.method == 'POST':
+        try:
+            # CRITICAL: Retrieve the 'exercise' name sent from the frontend
+            exercise_name = request.json.get('exercise', 'Bicep Curl') 
+        except:
+            # If JSON is invalid or missing, stick with default
+            pass
+    
+    if workout_session:
+        try: workout_session.stop()
+        except: pass
+    try:
+        # Pass the specific exercise name to initialization
+        init_session(exercise_name=exercise_name) 
+        workout_session.start()
+        return jsonify({'status': 'success', 'message': f'Session started for {exercise_name}'}), 200
+    except Exception as e:
+        # Log the full exception for debugging
+        print(f"Exception during start_tracking: {e}")
+        return jsonify({'status': 'error', 'message': f'Failed to start: {e}'}), 500
+
+
+# Keep this for backward compatibility, but we use Socket for stopping now
+@app.route('/stop_tracking', methods=['POST'])
+def stop_tracking_http():
+    global workout_session
+    if not workout_session: return jsonify({'status': 'inactive'})
+    try:
+        workout_session.stop()
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        return jsonify({'status': 'error'}), 500
+
 
         # 1. Fetch all sessions for this user, sorted by newest first
         sessions = list(sessions_collection.find({'email': email}).sort('timestamp', -1))
@@ -455,12 +435,15 @@ def get_analytics_detailed():
 def video_feed():
     return Response(generate_video_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
+
 @app.route('/report_data')
 def report_data():
     if workout_session: return jsonify(workout_session.get_final_report())
     return jsonify({'error': 'No session data available'})
 
+
 if __name__ == '__main__':
+    # Initial session setup (using default name)
     init_session()
     # Use socketio.run instead of app.run
     socketio.run(app, host='0.0.0.0', port=5001, debug=True)

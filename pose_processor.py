@@ -1,58 +1,55 @@
-# ============================================================================
-# pose_processor.py
-# ============================================================================
 """
-MediaPipe pose detection and landmark extraction
+MediaPipe pose detection and landmark extraction - AGNOSTIC
 """
 import mediapipe as mp
 from typing import Dict, Optional
+# [Change] Import the new ExerciseConfig for type hinting and configuration
+from constants import ExerciseConfig 
+
 
 class PoseProcessor:
     """Handles MediaPipe pose detection and landmark extraction"""
     
-    ARM_CONFIG = {
-        'RIGHT': {
-            'shoulder': mp.solutions.holistic.PoseLandmark.RIGHT_SHOULDER,
-            'elbow': mp.solutions.holistic.PoseLandmark.RIGHT_ELBOW,
-            'wrist': mp.solutions.holistic.PoseLandmark.RIGHT_WRIST
-        },
-        'LEFT': {
-            'shoulder': mp.solutions.holistic.PoseLandmark.LEFT_SHOULDER,
-            'elbow': mp.solutions.holistic.PoseLandmark.LEFT_ELBOW,
-            'wrist': mp.solutions.holistic.PoseLandmark.LEFT_WRIST
-        }
-    }
+    # [Change] Remove hardcoded ARM_CONFIG
     
-    def __init__(self, angle_calculator):
+    def __init__(self, angle_calculator, exercise_config: ExerciseConfig): # << MODIFIED
         self.angle_calculator = angle_calculator
+        self.config = exercise_config # Store the current exercise configuration
     
     def extract_arm_angle(self, landmarks, arm: str) -> Optional[float]:
-        """Extract elbow angle for specified arm"""
+        """Extract angle for the specified joint using the current exercise config"""
         try:
-            config = self.ARM_CONFIG[arm]
+            # 1. Select the correct landmark index list based on arm/side
+            if arm == 'RIGHT':
+                indices = self.config.right_landmarks
+            elif arm == 'LEFT':
+                indices = self.config.left_landmarks
+            else:
+                return None
             
-            shoulder = [landmarks[config['shoulder']].x, 
-                       landmarks[config['shoulder']].y]
-            elbow = [landmarks[config['elbow']].x, 
-                    landmarks[config['elbow']].y]
-            wrist = [landmarks[config['wrist']].x, 
-                    landmarks[config['wrist']].y]
+            # Indices are (A, B, C) where B is the vertex
+            A_idx, B_idx, C_idx = indices
             
-            # Check landmark visibility
-            if (landmarks[config['shoulder']].visibility < 0.6 or
-                landmarks[config['elbow']].visibility < 0.6 or
-                landmarks[config['wrist']].visibility < 0.6):
+            # 2. Extract Coordinates
+            A = [landmarks[A_idx].x, landmarks[A_idx].y] 
+            B = [landmarks[B_idx].x, landmarks[B_idx].y] 
+            C = [landmarks[C_idx].x, landmarks[C_idx].y] 
+            
+            # 3. Check landmark visibility
+            if (landmarks[A_idx].visibility < 0.6 or
+                landmarks[B_idx].visibility < 0.6 or
+                landmarks[C_idx].visibility < 0.6):
                 return None
 
-            
-            raw_angle = self.angle_calculator.calculate_angle(shoulder, elbow, wrist)
+            # 4. Calculate and smooth the angle
+            raw_angle = self.angle_calculator.calculate_angle(A, B, C)
             return self.angle_calculator.get_smoothed_angle(arm, raw_angle)
             
         except (KeyError, IndexError, AttributeError):
             return None
     
     def get_both_arm_angles(self, results) -> Dict[str, Optional[int]]:
-        """Get angles for both arms"""
+        """Get angles for both sides defined in the config"""
         if not results.pose_landmarks:
             return {'RIGHT': None, 'LEFT': None}
         

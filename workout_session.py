@@ -1,5 +1,5 @@
 """
-Main workout session manager - FIXED COUNTING & FLICKERING
+Main workout session manager - AGNOSTIC VERSION
 """
 import cv2
 import mediapipe as mp
@@ -7,22 +7,29 @@ import numpy as np
 import time
 from typing import Tuple, Optional
 
+
 # Import the upgraded AI Engine
 from ai_engine import AIEngine
+
 
 class WorkoutSession:
     """Manages entire workout session state"""
     
-    def __init__(self):
+    def __init__(self, exercise_name: str = "Bicep Curl"): # << MODIFIED
+        # [Change] Re-import constants to ensure the new ExerciseConfig is loaded
         from constants import (WorkoutPhase, MIN_DETECTION_CONFIDENCE, 
-                              MIN_TRACKING_CONFIDENCE, WORKOUT_COUNTDOWN_TIME,
-                              CALIBRATION_HOLD_TIME, SMOOTHING_WINDOW, 
-                              SAFETY_MARGIN, MIN_REP_DURATION)
+                               MIN_TRACKING_CONFIDENCE, WORKOUT_COUNTDOWN_TIME,
+                               CALIBRATION_HOLD_TIME, SMOOTHING_WINDOW, 
+                               SAFETY_MARGIN, MIN_REP_DURATION, 
+                               EXERCISE_PRESETS) 
         from models import ArmMetrics, CalibrationData, SessionHistory
         from angle_calculator import AngleCalculator
         from pose_processor import PoseProcessor
         from calibration import CalibrationManager
         from rep_counter import RepCounter
+        
+        # Load the configuration for the selected exercise
+        self.exercise_config = EXERCISE_PRESETS.get(exercise_name, EXERCISE_PRESETS["Bicep Curl"])
         
         self.phase = WorkoutPhase.INACTIVE
         self.start_time = 0.0
@@ -36,12 +43,16 @@ class WorkoutSession:
         
         # Initialize components
         angle_calc = AngleCalculator(SMOOTHING_WINDOW)
-        self.pose_processor = PoseProcessor(angle_calc)
+        # Pass the config to PoseProcessor
+        self.pose_processor = PoseProcessor(angle_calc, self.exercise_config) 
         
         calibration_data = CalibrationData()
+        # The CalibrationManager needs the PoseProcessor, which holds the correct config
         self.calibration_manager = CalibrationManager(
-            self.pose_processor, calibration_data, 
-            CALIBRATION_HOLD_TIME, SAFETY_MARGIN
+            self.pose_processor, # PoseProcessor holds the exercise config
+            calibration_data, 
+            CALIBRATION_HOLD_TIME, 
+            SAFETY_MARGIN
         )
         
         self.rep_counter = RepCounter(calibration_data, MIN_REP_DURATION)
@@ -57,13 +68,11 @@ class WorkoutSession:
         self.last_ai_check = 0
         self.ai_interval = 0.2  # Run AI check every 200ms
         
-        # [NEW] Latch the AI state so text doesn't flicker between checks
         self.ai_latched_state = {
             'RIGHT': False, # False = Good Form, True = Bad Form
             'LEFT': False
         }
         
-        # [NEW] Track the previous frame's text to ensure 1:1 counting
         self.last_feedback_text = {
             'RIGHT': "",
             'LEFT': ""
@@ -169,7 +178,7 @@ class WorkoutSession:
     
     def _process_workout(self, results, current_time: float):
         """Handle active workout phase with Synchronized AI Feedback"""
-        from constants import ArmStage
+        from constants import ArmStage 
         
         if not results.pose_landmarks:
             for arm in ['RIGHT', 'LEFT']:
@@ -181,6 +190,7 @@ class WorkoutSession:
             self.last_ai_check = current_time
             self._update_ai_latch(results)
 
+
         # 2. Get Geometric Angles
         angles = self.pose_processor.get_both_arm_angles(results)
         
@@ -188,22 +198,18 @@ class WorkoutSession:
         for arm in ['RIGHT', 'LEFT']:
             if angles[arm] is not None:
                 # A. Run Math Logic (Sets 'Over Curling' etc, or clears feedback)
-                # Note: This function increments history for Math errors internally
                 self.rep_counter.process_rep(
                     arm, angles[arm], self.arm_metrics[arm], 
                     current_time, self.history
                 )
                 
                 # B. Inject AI Feedback (If Math is silent)
-                # This ensures text stays visible every frame
                 if not self.arm_metrics[arm].feedback and self.ai_latched_state[arm]:
                     # Only apply if arm is active (UP) to avoid noise at rest
                     if self.arm_metrics[arm].stage == ArmStage.UP.value:
                         self.arm_metrics[arm].feedback = "AI: Bad Form"
                 
                 # C. Handle Counting for AI Feedback
-                # We count only when the text *changes* to "AI: Bad Form"
-                # This perfectly mimics the "Red Text" appearance
                 current_text = self.arm_metrics[arm].feedback
                 previous_text = self.last_feedback_text[arm]
                 
@@ -216,37 +222,51 @@ class WorkoutSession:
                 # Update tracker for next frame
                 self.last_feedback_text[arm] = current_text
 
+
         # Log to history
         self.history.time.append(round(current_time - self.start_time, 2))
         self.history.right_angle.append(angles['RIGHT'] or 0)
         self.history.left_angle.append(angles['LEFT'] or 0)
 
+
     def _update_ai_latch(self, results):
-        """Run inference and update the latched state"""
+        """Run inference and update the latched state using the current exercise's features"""
+        
+        # Get the list of landmark indices to use as features from the config
+        feature_indices = self.exercise_config.ai_features_landmarks
+        
+        if not results.pose_landmarks or len(feature_indices) == 0:
+            self.ai_latched_state['RIGHT'] = False
+            self.ai_latched_state['LEFT'] = False
+            return
+            
         try:
             landmarks = results.pose_landmarks.landmark
-            features = [
-                landmarks[12].x, landmarks[12].y, # R Shoulder
-                landmarks[14].x, landmarks[14].y, # R Elbow
-                landmarks[16].x, landmarks[16].y, # R Wrist
-                landmarks[11].x, landmarks[11].y, # L Shoulder
-                landmarks[13].x, landmarks[13].y, # L Elbow
-                landmarks[15].x, landmarks[15].y  # L Wrist
-            ]
+            features = []
             
-            # 0 = Bad Form, 1 = Good Form
-            prediction = AIEngine.predict_form(features)
+            # Dynamically build the feature vector (X, Y for each landmark index)
+            for index in feature_indices:
+                features.append(landmarks[index].x)
+                features.append(landmarks[index].y)
+
+            # NOTE: The rehab_model.pkl is expected to have 16 features (8 landmarks * 2)
+            if len(features) != 16:
+                 # Fallback/warning if feature length does not match expected model input
+                 print(f"⚠️ AI Model Feature Mismatch: Expected 16, got {len(features)}. Assuming good form.")
+                 prediction = 1
+            else:
+                 # 0 = Bad Form, 1 = Good Form
+                 prediction = AIEngine.predict_form(features)
             
-            # Update the latch. True = Bad Form detected.
+            # Update the latch. True = Bad Form detected (prediction 0).
             is_bad_form = (prediction == 0)
             
-            # Latch state for both arms (Simplification: Global body form affects both)
-            # You could refine this to check specific arm coordinates if needed
+            # Latch state for both arms (or relevant sides)
             self.ai_latched_state['RIGHT'] = is_bad_form
             self.ai_latched_state['LEFT'] = is_bad_form
-                    
-        except Exception:
-            # On error, assume good form to be safe
+            
+        except Exception as e:
+            print(f"❌ Error generating AI features: {e}")
             self.ai_latched_state['RIGHT'] = False
             self.ai_latched_state['LEFT'] = False
     
@@ -258,7 +278,10 @@ class WorkoutSession:
     
     def get_state_dict(self) -> dict:
         """Get current state as dictionary for API"""
+        # <<< CRITICAL FIX: Include dynamic joint name and exercise name in state dict >>>
         return {
+            'exercise_name': self.exercise_config.name,
+            'tracked_joint_name': self.exercise_config.joint_to_track.value.title(),
             'RIGHT': self.arm_metrics['RIGHT'].to_dict(),
             'LEFT': self.arm_metrics['LEFT'].to_dict(),
             'status': self.phase.value,
@@ -273,6 +296,7 @@ class WorkoutSession:
     def get_final_report(self) -> dict:
         """Generate final session report"""
         return {
+            'exercise_name': self.exercise_config.name, 
             'duration': round(self.history.time[-1] if self.history.time else 0, 2),
             'summary': {
                 'RIGHT': {
