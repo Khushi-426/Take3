@@ -32,6 +32,9 @@ const speak = (text) => {
   window.speechSynthesis.speak(utterance);
 };
 
+// --- API CONFIGURATION ---
+const API_URL = "http://127.0.0.1:5001"; // UPDATED PORT
+
 const Tracker = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -60,7 +63,8 @@ const Tracker = () => {
 
   // --- 1. SETUP SOCKET CONNECTION & FETCH EXERCISES ---
   useEffect(() => {
-    const newSocket = io("http://localhost:5000");
+    // UPDATED SOCKET URL
+    const newSocket = io(API_URL);
     setSocket(newSocket);
 
     newSocket.on("connect", () => {
@@ -85,14 +89,13 @@ const Tracker = () => {
     // Fetch exercises from backend API
     const fetchExercises = async () => {
       try {
-        const response = await fetch("http://localhost:5000/api/exercises");
+        const response = await fetch(`${API_URL}/api/exercises`);
         if (response.ok) {
           const data = await response.json();
           setExercises(data);
-          const defaultEx = data.find((ex) => ex.title === "Bicep Curl");
-          if (defaultEx) {
-            setSelectedExercise(defaultEx);
-          }
+          // Optional: Set default exercise if needed
+          // const defaultEx = data.find((ex) => ex.title === "Bicep Curl");
+          // if (defaultEx) setSelectedExercise(defaultEx);
         } else {
           console.error(
             "Failed to fetch exercises from backend:",
@@ -187,7 +190,7 @@ const Tracker = () => {
     try {
       setConnectionStatus("CONNECTING");
 
-      const res = await fetch("http://localhost:5000/start_tracking", {
+      const res = await fetch(`${API_URL}/start_tracking`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -817,7 +820,7 @@ const Tracker = () => {
           <div style={{ width: "100%", height: "100%", position: "relative" }}>
             {active ? (
               <img
-                src={`http://localhost:5000/video_feed?t=${videoTimestamp}`}
+                src={`${API_URL}/video_feed?t=${videoTimestamp}`}
                 style={{ width: "100%", height: "100%", objectFit: "contain" }}
                 alt="Stream"
               />
