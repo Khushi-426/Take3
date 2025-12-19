@@ -1,6 +1,6 @@
 """
 Flask application with API routes - THREADING MODE (No Eventlet)
-INTEGRATED WITH: MongoDB, Ghost Toggle, Smart AI Coach, and Streaming
+INTEGRATED WITH: MongoDB, Ghost Toggle, Smart AI Coach, Streaming, and Accuracy Tracking
 """
 from flask import Flask, Response, jsonify, request, render_template
 import cv2
@@ -116,7 +116,7 @@ def get_camera_index():
     return 0 
 
 def init_session(exercise_name="Bicep Curl"):
-    """Initialize a new workout session, ensuring the old one is closed."""
+    """Initialize a new workout session with clean visuals and accuracy logic."""
     global workout_session, last_session_report
     
     with session_lock:
@@ -149,7 +149,7 @@ def init_session(exercise_name="Bicep Curl"):
         workout_session.start()
 
 def generate_video_frames():
-    """Generator function to stream video frames."""
+    """Generator function to stream video frames and accuracy data."""
     from constants import WorkoutPhase
     global workout_session
     
@@ -159,12 +159,13 @@ def generate_video_frames():
             continue
 
         try:
+            # frame is now processed without technical black boxes ("Optimal Flow", etc.)
             frame, valid = workout_session.process_frame()
             
             if not valid or frame is None:
                 continue
 
-            # Emit real-time data to frontend via WebSocket
+            # Emit real-time state data (including Accuracy) to frontend via WebSocket
             socketio.emit("workout_update", workout_session.get_state_dict())
             
             # Encode frame for HTTP Stream
@@ -177,7 +178,7 @@ def generate_video_frames():
                     + b"\r\n"
                 )
         except Exception as e:
-            print(f"Stream Error: {e}")
+            logger.error(f"Stream Error: {e}")
             break
 
 # ----------------------------------------------------
@@ -296,12 +297,12 @@ def handle_stop_session(data):
                 "timestamp": time.time(),
                 "date": datetime.now().strftime("%Y-%m-%d"),
                 "total_reps": r["total_reps"] + l["total_reps"],
-                "total_errors": r["error_count"] + l["error_count"],
+                "total_errors": r.get("error_count", 0) + l.get("error_count", 0),
             })
 
         emit("session_stopped", {"status": "success"})
     except Exception as e:
-        print(f"Stop session error: {e}")
+        logger.error(f"Stop session error: {e}")
         emit("session_stopped", {"status": "error", "message": str(e)})
 
 @socketio.on("toggle_listening")
@@ -357,15 +358,12 @@ def ai_coach_commentary():
         
     data = request.get_json(silent=True) or {}
     
-    # --- HANDLING LISTENING TOGGLE VIA HTTP (Backup) ---
     if 'listening' in data:
         global workout_session
         if workout_session:
             active = data['listening']
             workout_session.set_listening(active)
-            print(f"🎙️ Setting listening mode to: {active}")
             return jsonify({"status": "updated", "listening": active})
-    # ---------------------------------------------------
 
     context = data.get("context")
     query = data.get("query")
@@ -379,11 +377,11 @@ def ai_coach_commentary():
         response = engine.generate_commentary(context, query, history)
         return jsonify({"response": response}), 200
     except Exception as e:
-        print(f"AI Coach Error: {e}")
+        logger.error(f"AI Coach Error: {e}")
         return jsonify({"error": str(e)}), 500
 
 # ----------------------------------------------------
-# 7. NEW: GHOST TOGGLE ROUTE
+# 7. GHOST TOGGLE ROUTE
 # ----------------------------------------------------
 @app.route('/toggle_ghost', methods=['POST'])
 def toggle_ghost():
@@ -421,7 +419,7 @@ def send_otp():
         mail.send(msg)
         return jsonify({"message": "OTP sent"}), 200
     except Exception as e:
-        print(f"Mail Error: {e}")
+        logger.error(f"Mail Error: {e}")
         return jsonify({"error": "Failed to send email. Check server logs."}), 500
 
 @app.route("/api/auth/login", methods=["POST"])
@@ -480,7 +478,6 @@ def signup_verify():
 @app.route("/api/auth/google", methods=["POST"])
 def google_auth():
     if users_collection is None:
-        print("❌ Login failed: Database not connected")
         return jsonify({"error": "Database unavailable. Check server logs."}), 503
 
     data = request.get_json(silent=True) or {}
@@ -532,7 +529,7 @@ def google_auth():
             }), 200
 
     except Exception as e:
-        print(f"Google Auth Error: {e}")
+        logger.error(f"Google Auth Error: {e}")
         return jsonify({"error": "Internal Server Error during Google Auth"}), 500
 
 @app.route("/api/exercises", methods=["GET"])
@@ -589,8 +586,6 @@ def start_tracking():
     data = request.get_json(silent=True) or {}
     exercise = data.get("exercise", "Bicep Curl")
 
-    print(f"🚀 Received start_tracking request for: {exercise}")
-
     try:
         init_session(exercise)
         if workout_session:
@@ -598,7 +593,7 @@ def start_tracking():
         else:
             return jsonify({"error": "Failed to initialize workout session"}), 500
     except Exception as e:
-        print(f"❌ Error in start_tracking: {e}")
+        logger.error(f"❌ Error in start_tracking: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/stop_tracking", methods=["POST"])

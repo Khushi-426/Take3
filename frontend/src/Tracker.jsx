@@ -17,13 +17,14 @@ import {
   User,
   Loader,
   RefreshCw,
+  Target, // New icon for Accuracy
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "./context/AuthContext";
 import { io } from "socket.io-client";
 
 import GhostModelOverlay from "./components/GhostModelOverlay";
-import AICoach from "./components/AICoach"; // <-- ADDED AICoach Import
+import AICoach from "./components/AICoach";
 
 // --- UTILITY: TTS ---
 const speak = (text) => {
@@ -52,7 +53,7 @@ const Tracker = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [fetchError, setFetchError] = useState(false);
 
-  // <<< UPDATED DATA STATE >>>
+  // <<< UPDATED DATA STATE TO INCLUDE ACCURACY >>>
   const [data, setData] = useState({
     RIGHT: {
       feedback_color: "GRAY",
@@ -60,6 +61,7 @@ const Tracker = () => {
       stage: "DOWN",
       angle: 0,
       feedback: "",
+      accuracy: 100, // NEW field
     },
     LEFT: {
       feedback_color: "GRAY",
@@ -67,6 +69,7 @@ const Tracker = () => {
       stage: "DOWN",
       angle: 0,
       feedback: "",
+      accuracy: 100, // NEW field
     },
     status: "INACTIVE",
     calibration: { message: "Waiting for camera...", progress: 0 },
@@ -94,6 +97,7 @@ const Tracker = () => {
   const timerRef = useRef(null);
   const stopTimeoutRef = useRef(null);
 
+  // Ref to track the last spoken instruction to prevent word repetition
   const lastSpokenRef = useRef("");
 
   // --- 1. SETUP SOCKET CONNECTION & FETCH EXERCISES ---
@@ -153,23 +157,24 @@ const Tracker = () => {
 
   const handleExitNavigation = () => {
     if (timerRef.current) clearInterval(timerRef.current);
-    if (stopTimeoutRef.current) clearTimeout(timerRef.current);
+    if (stopTimeoutRef.current) clearTimeout(stopTimeoutRef.current);
     navigate("/report");
   };
 
-  // --- 2. LOGIC HANDLER ---
+  // --- 2. LOGIC HANDLER (RE-DESIGNED FOR USER CENTERED FEEDBACK) ---
   const handleWorkoutUpdate = (json) => {
-    // CALIBRATION
+    // 1. SILENCED CALIBRATION: Only speak when the message actually changes
     if (json.status === "CALIBRATION") {
-      setFeedback(json.calibration?.message || "Calibrating...");
+      const calMsg = json.calibration?.message || "Calibrating...";
+      setFeedback(calMsg);
       setCalibrationProgress(json.calibration?.progress || 0);
       setCountdownValue(null);
 
-      if (json.calibration?.message) {
-        triggerSpeech(json.calibration.message);
+      if (calMsg && calMsg !== lastSpokenRef.current) {
+        triggerSpeech(calMsg);
       }
     }
-    // COUNTDOWN
+    // 2. COUNTDOWN
     else if (json.status === "COUNTDOWN") {
       setFeedback("Get Ready!");
       setCountdownValue(json.remaining);
@@ -181,30 +186,29 @@ const Tracker = () => {
         triggerSpeech("Start");
       }
     }
-    // ACTIVE
+    // 3. ACTIVE: Stable non-repetitive coaching
     else if (json.status === "ACTIVE") {
       setCountdownValue(null);
 
-      // Use ghost_pose instruction as the primary guidance message
       let msg = json.ghost_pose?.instruction || "MAINTAIN FORM";
       let alertMsg = "";
 
       // Overwrite primary message with error feedback if present
       if (json.RIGHT && json.RIGHT.feedback) {
-        msg = `RIGHT: ${json.RIGHT.feedback}`;
+        msg = json.RIGHT.feedback;
         alertMsg = json.RIGHT.feedback;
       } else if (json.LEFT && json.LEFT.feedback) {
-        msg = `LEFT: ${json.LEFT.feedback}`;
+        msg = json.LEFT.feedback;
         alertMsg = json.LEFT.feedback;
       }
 
       setFeedback(msg);
 
-      if (alertMsg) {
+      // Only trigger speech if it's a NEW coaching instruction
+      if (alertMsg && alertMsg !== lastSpokenRef.current) {
         triggerSpeech(alertMsg);
       }
 
-      // Update feedback box class based on the right arm's color metrics
       const fbBox = document.getElementById("feedback-box");
       const color = json.RIGHT?.feedback_color;
       if (fbBox && color) {
@@ -214,14 +218,14 @@ const Tracker = () => {
   };
 
   const triggerSpeech = (text) => {
-    if (!soundEnabled) return;
+    if (!soundEnabled || !text) return;
     if (text !== lastSpokenRef.current) {
       speak(text);
       lastSpokenRef.current = text;
     }
   };
 
-  // --- SESSION CONTROL (unchanged) ---
+  // --- SESSION CONTROL ---
   const startSession = async () => {
     if (!selectedExercise) {
       alert("Please select an exercise first.");
@@ -247,7 +251,7 @@ const Tracker = () => {
         setVideoTimestamp(Date.now());
         setActive(true);
         setSessionTime(0);
-        speak("Initializing. Please align with the skeleton.");
+        triggerSpeech("Initializing. Please align with the skeleton.");
 
         if (timerRef.current) clearInterval(timerRef.current);
         timerRef.current = setInterval(
@@ -263,7 +267,7 @@ const Tracker = () => {
       );
       console.error(e);
       setConnectionStatus("DISCONNECTED");
-      setViewMode("DEMO");
+      setViewMode("LIBRARY");
     } finally {
       setIsLoading(false);
     }
@@ -287,7 +291,6 @@ const Tracker = () => {
     }, 1000);
   };
 
-  // --- 4. BOT INTERACTION HANDLERS ---
   const handleListeningChange = (isListening) => {
     if (socket) {
       socket.emit("toggle_listening", { active: isListening });
@@ -309,7 +312,7 @@ const Tracker = () => {
     return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
   };
 
-  // --- RENDER LIBRARY (unchanged) ---
+  // --- RENDER LIBRARY ---
   const renderLibrary = () => (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -531,7 +534,7 @@ const Tracker = () => {
     </motion.div>
   );
 
-  // --- RENDER DEMO (unchanged) ---
+  // --- RENDER DEMO ---
   const renderDemo = () => {
     if (!selectedExercise) return null;
 
@@ -671,8 +674,7 @@ const Tracker = () => {
                 "Connecting..."
               ) : (
                 <>
-                  {" "}
-                  <Play size={20} fill="currentColor" /> Start Session{" "}
+                  <Play size={20} fill="currentColor" /> Start Session
                 </>
               )}
             </button>
@@ -706,12 +708,6 @@ const Tracker = () => {
   // --- RENDER SESSION ---
   const renderSession = () => {
     const jointName = data?.tracked_joint_name || "JOINT";
-
-    // Determine the main feedback and color for the instruction box
-    const mainFeedback = data?.RIGHT.feedback || data?.LEFT.feedback;
-    const instructionText = mainFeedback
-      ? mainFeedback.replace("AI: ", "")
-      : data?.ghost_pose.instruction;
     const feedbackColor = data?.RIGHT.feedback_color || "GRAY";
 
     return (
@@ -795,7 +791,6 @@ const Tracker = () => {
           <div style={{ flex: 1, overflowY: "auto", padding: "25px" }}>
             {["RIGHT", "LEFT"].map((arm) => {
               const metrics = data ? data[arm] : null;
-              // Use feedback color to highlight the arm's status card
               const cardColor =
                 metrics?.feedback_color === "RED"
                   ? "#FFEBEE"
@@ -817,34 +812,49 @@ const Tracker = () => {
                         : metrics?.feedback_color === "GREEN"
                         ? "1px solid #69B341"
                         : "1px solid #eee",
-                    transition: "all 0.2s",
+                    transition: "all 0.3s ease",
                   }}
                 >
-                  <h3
+                  <div
                     style={{
                       margin: "0 0 15px 0",
-                      color: "#444",
-                      fontSize: "0.85rem",
-                      fontWeight: "800",
                       display: "flex",
                       justifyContent: "space-between",
-                      borderBottom: "1px solid #eee",
+                      alignItems: "center",
+                      borderBottom: "1px solid rgba(0,0,0,0.05)",
                       paddingBottom: "10px",
                     }}
                   >
-                    {/* Dynamic Joint Name Display */}
-                    {arm} {jointName.toUpperCase()}
-                    <span
+                    <h3
                       style={{
-                        color:
-                          metrics?.feedback_color === "RED"
-                            ? "#D32F2F"
-                            : "#2C5D31",
+                        color: "#444",
+                        fontSize: "0.85rem",
+                        fontWeight: "800",
+                        margin: 0,
                       }}
                     >
-                      {metrics ? metrics.stage : "--"}
-                    </span>
-                  </h3>
+                      {arm} {jointName.toUpperCase()}
+                    </h3>
+
+                    {/* NEW: DYNAMIC ACCURACY BADGE */}
+                    <div
+                      style={{
+                        background:
+                          metrics?.accuracy > 85 ? "#2C5D31" : "#D32F2F",
+                        color: "white",
+                        padding: "4px 8px",
+                        borderRadius: "12px",
+                        fontSize: "0.65rem",
+                        fontWeight: "bold",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
+                      <Target size={12} /> {metrics?.accuracy || 100}%
+                    </div>
+                  </div>
+
                   <div
                     style={{
                       display: "flex",
@@ -891,27 +901,25 @@ const Tracker = () => {
                           color: "#222",
                         }}
                       >
-                        {metrics ? metrics.angle : "--"}°
+                        {metrics ? Math.round(metrics.angle) : "--"}°
                       </div>
                     </div>
                   </div>
                   <div
                     style={{
                       height: "6px",
-                      background: "#e0e0e0",
+                      background: "rgba(0,0,0,0.05)",
                       borderRadius: "4px",
                       overflow: "hidden",
                     }}
                   >
-                    <div
-                      style={{
+                    <motion.div
+                      animate={{
                         width: metrics
                           ? `${(metrics.angle / 180) * 100}%`
                           : "0%",
-                        height: "100%",
-                        background: "#2C5D31",
-                        transition: "width 0.1s linear",
                       }}
+                      style={{ height: "100%", background: "#2C5D31" }}
                     />
                   </div>
                 </div>
@@ -960,7 +968,6 @@ const Tracker = () => {
           <div style={{ width: "100%", height: "100%", position: "relative" }}>
             {active ? (
               <>
-                {/* 1. Video Stream */}
                 <img
                   src={`${API_URL}/video_feed?t=${videoTimestamp}`}
                   className="video-feed"
@@ -975,8 +982,6 @@ const Tracker = () => {
                     setActive(false);
                   }}
                 />
-
-                {/* 2. Ghost Model Overlay */}
                 <GhostModelOverlay ghostPoseData={data.ghost_pose} />
               </>
             ) : (
@@ -1003,44 +1008,8 @@ const Tracker = () => {
               </div>
             )}
 
-            {/* REFERENCE SKELETON OVERLAY (Calibration visual aid) */}
-            {data?.status === "CALIBRATION" && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: "50%",
-                  left: "50%",
-                  transform: "translate(-50%, -50%)",
-                  width: "300px",
-                  height: "500px",
-                  pointerEvents: "none",
-                  opacity: 0.6,
-                  border: "4px dashed rgba(255,255,255,0.5)",
-                  borderRadius: "150px 150px 0 0",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  zIndex: 20,
-                }}
-              >
-                <User size={120} color="rgba(255,255,255,0.5)" />
-                <div
-                  style={{
-                    position: "absolute",
-                    bottom: "-40px",
-                    color: "#fff",
-                    background: "rgba(0,0,0,0.5)",
-                    padding: "5px 10px",
-                    borderRadius: "10px",
-                  }}
-                >
-                  Align Here
-                </div>
-              </div>
-            )}
-
             <AnimatePresence>
-              {/* 1. CALIBRATION OVERLAY (unchanged) */}
+              {/* CALIBRATION / COUNTDOWN OVERLAYS (No technical jargon boxes) */}
               {data?.status === "CALIBRATION" && (
                 <motion.div
                   initial={{ opacity: 0 }}
@@ -1049,7 +1018,7 @@ const Tracker = () => {
                   style={{
                     position: "absolute",
                     inset: 0,
-                    background: "rgba(0,0,0,0.1)",
+                    background: "rgba(0,0,0,0.3)",
                     display: "flex",
                     flexDirection: "column",
                     alignItems: "center",
@@ -1085,7 +1054,6 @@ const Tracker = () => {
                 </motion.div>
               )}
 
-              {/* 2. COUNTDOWN OVERLAY (unchanged) */}
               {data?.status === "COUNTDOWN" && (
                 <motion.div
                   initial={{ scale: 0.5, opacity: 0 }}
@@ -1098,7 +1066,6 @@ const Tracker = () => {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    background: "rgba(0,0,0,0.2)",
                     zIndex: 30,
                   }}
                 >
@@ -1115,7 +1082,6 @@ const Tracker = () => {
                 </motion.div>
               )}
 
-              {/* 3. ACTIVE FEEDBACK BOX (Updated to use class) */}
               {data?.status === "ACTIVE" && (
                 <motion.div
                   initial={{ y: 50, opacity: 0 }}
@@ -1133,22 +1099,18 @@ const Tracker = () => {
                     fontSize: "1.5rem",
                     fontWeight: "800",
                     color: "#222",
-                    whiteSpace: "nowrap",
                     boxShadow: "0 20px 40px rgba(0,0,0,0.3)",
                     backdropFilter: "blur(10px)",
-                    transition: "all 0.3s ease",
                     display: "flex",
                     alignItems: "center",
                     gap: "10px",
                     zIndex: 30,
                   }}
                 >
-                  {feedback.includes("MAINTAIN") ||
-                  feedback.includes("Up") ||
-                  feedback.includes("Down") ? (
-                    <CheckCircle size={28} />
-                  ) : (
+                  {feedback.includes("Form") ? (
                     <AlertCircle size={28} />
+                  ) : (
+                    <CheckCircle size={28} />
                   )}
                   {feedback}
                 </motion.div>
@@ -1157,10 +1119,10 @@ const Tracker = () => {
           </div>
         </div>
 
-        {/* AI Coach Area (NEW PANEL) */}
+        {/* AICoach Integration */}
         <div
           style={{
-            width: "300px", // Fixed width for the coach panel
+            width: "300px",
             borderLeft: "1px solid #eee",
             background: "#F9F7F3",
           }}
@@ -1187,15 +1149,6 @@ const Tracker = () => {
         {viewMode === "DEMO" && renderDemo()}
         {viewMode === "SESSION" && renderSession()}
       </AnimatePresence>
-      <style>{`
-        .spin-animation {
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-      `}</style>
     </div>
   );
 };

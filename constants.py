@@ -48,8 +48,8 @@ class ExerciseConfig:
     
     # Landmark definitions are (A, B, C) where B is the vertex (e.g., Elbow or Knee)
     # Uses integer indices from MediaPipe Holistic PoseLandmark
-    right_landmarks: List[int] = field(default_factory=list) 
-    left_landmarks: List[int] = field(default_factory=list)  
+    right_landmarks: List[int] = field(default_factory=list)
+    left_landmarks: List[int] = field(default_factory=list) 
     
     # Landmarks for AI features (R_A, R_B, R_C, L_A, L_B, L_C, plus 2 stabilization points)
     # AI models require 8 landmarks (16 features) for consistency
@@ -85,7 +85,7 @@ EXERCISE_PRESETS = {
     ),
     "Shoulder Press": ExerciseConfig(
         name="Shoulder Press",
-        joint_to_track=ExerciseJoint.SHOULDER, 
+        joint_to_track=ExerciseJoint.SHOULDER,
         right_landmarks=[mp_pose.RIGHT_HIP.value, mp_pose.RIGHT_SHOULDER.value, mp_pose.RIGHT_ELBOW.value],
         left_landmarks=[mp_pose.LEFT_HIP.value, mp_pose.LEFT_SHOULDER.value, mp_pose.LEFT_ELBOW.value],
         ai_features_landmarks=[
@@ -106,7 +106,6 @@ EXERCISE_PRESETS = {
             mp_pose.RIGHT_ANKLE.value, mp_pose.LEFT_ANKLE.value # Stabilization: Ankle position (foot placement)
         ]
     ),
-    # <<<<<<<< NEW EXERCISE ADDED: STANDING ROW >>>>>>>>>
     "Standing Row": ExerciseConfig(
         name="Standing Row",
         joint_to_track=ExerciseJoint.SHOULDER,
@@ -136,9 +135,9 @@ MIN_TRACKING_CONFIDENCE = 0.7
 # Rep validation
 MIN_REP_DURATION = 0.6    # seconds - prevents false counts and forces control
 
-# NEW: Rep validation tolerance and explicit hysteresis margin
-REP_VALIDATION_RELIEF = 5   # degrees: The +/- 2 degree error space allowed for reaching a calibrated peak
-REP_HYSTERESIS_MARGIN = 5   # degrees: Margin used for state transition stability (anti-flicker)
+# USER-CENTERED STABILITY ENHANCEMENTS
+REP_VALIDATION_RELIEF = 5   # degrees: allowed space for reaching peak
+REP_HYSTERESIS_MARGIN = 5   # degrees: margin for state transition stability
 
 # Default thresholds (overridden by calibration)
 DEFAULT_CONTRACTED_THRESHOLD = 50

@@ -1,5 +1,5 @@
 """
-Data classes for state management - FIXED
+Data classes for state management - UPDATED FOR USER-CENTERED DESIGN & ACCURACY
 """
 from dataclasses import dataclass, field
 from typing import Dict, List
@@ -27,24 +27,26 @@ class GhostPose:
 
 @dataclass
 class ArmMetrics:
-    """Stores all metrics for a single arm"""
+    """Stores all metrics for a single arm including user-centered accuracy"""
     rep_count: int = 0
     stage: str = "DOWN"
     angle: int = 0
+    accuracy: int = 100  # NEW: Tracks rep quality (0-100%)
     rep_time: float = 0.0
     min_rep_time: float = 0.0
     curr_rep_time: float = 0.0
     feedback: str = ""
     last_down_time: float = field(default_factory=time.time)
     stage_start_time: float = field(default_factory=time.time)
-    # <<< NEW FIELD >>>
     feedback_color: str = "GRAY" 
     
     def to_dict(self) -> dict:
+        """Returns session state for frontend communication including accuracy"""
         return {
             'rep_count': self.rep_count,
             'stage': self.stage,
             'angle': self.angle,
+            'accuracy': self.accuracy, # Now sent to frontend
             'rep_time': round(self.rep_time, 2),
             'min_rep_time': round(self.min_rep_time, 2),
             'curr_rep_time': round(self.curr_rep_time, 2),
@@ -56,11 +58,11 @@ class ArmMetrics:
 class CalibrationData:
     """Manages calibration state and measurements"""
     active: bool = False
-    phase: 'CalibrationPhase' = None
+    phase: str = None # Now uses string phases like "EXTEND"
     phase_start_time: float = 0.0
     extended_angles: Dict[str, List[float]] = field(default_factory=lambda: {'RIGHT': [], 'LEFT': []})
     contracted_angles: Dict[str, List[float]] = field(default_factory=lambda: {'RIGHT': [], 'LEFT': []})
-    message: str = ""
+    message: str = "" # Holds the non-repeating calibration instructions
     progress: int = 0
     
     contracted_threshold: int = 50

@@ -1,5 +1,5 @@
 """
-Calibration logic: Dynamically determines ROM thresholds
+Calibration logic: Dynamically determines ROM thresholds with minimal voice spam
 """
 import time
 from typing import TYPE_CHECKING
@@ -25,29 +25,29 @@ class CalibrationManager:
         self.max_angle = 0    
 
     def start(self):
+        """Initializes the calibration sequence with a stable instruction."""
         self.data.active = True
         self.data.phase = CalibrationPhase.EXTEND
-        # FIX: Single static message to avoid voice spam
-        self.data.message = f"CALIBRATION: Fully EXTEND your {self.joint_name} joint."
+        # SINGLE CLEAR MESSAGE: Only triggers speech once at phase start
+        self.data.message = f"Please fully EXTEND your {self.joint_name} joint."
         self.data.progress = 0
         self.start_time = time.time()
         self.min_angle = 360
         self.max_angle = 0
-        print(f"Starting calibration for: {self.exercise_name} (Joint: {self.joint_name})")
+        print(f"Starting calibration for: {self.exercise_name}")
 
     def process_frame(self, results, current_time: float) -> bool:
+        """Processes pose data to determine range of motion limits."""
         if not self.data.active:
             return False
 
         angles = self.pose_processor.get_both_arm_angles(results)
-        right_angle = angles.get('RIGHT')
-        left_angle = angles.get('LEFT')
-        
-        valid_angles = [a for a in [right_angle, left_angle] if a is not None]
+        valid_angles = [a for a in angles.values() if a is not None]
 
         if not valid_angles:
-            self.data.message = f"CALIBRATION: Please ensure your {self.joint_name} joint is visible."
-            self.data.progress = 0
+            # Only update if the joint is actually lost to avoid voice spam
+            if "ensure" not in self.data.message:
+                self.data.message = f"Searching for your {self.joint_name} joint..."
             self.start_time = current_time 
             return False
             
@@ -56,39 +56,22 @@ class CalibrationManager:
         self.max_angle = max(self.max_angle, current_angle)
         
         elapsed_time = current_time - self.start_time
+        self.data.progress = int((elapsed_time / self.hold_time) * 100)
         
         if self.data.phase == CalibrationPhase.EXTEND:
-            # Check holding extended position
-            if current_angle > (self.max_angle - 5) or elapsed_time < 0.5:
-                self.data.progress = int((elapsed_time / self.hold_time) * 100)
-                # FIX: Static message during hold
-                self.data.message = f"CALIBRATION: Hold EXTENDED {self.joint_name} position."
-            else:
-                self.start_time = current_time
-                self.data.message = f"CALIBRATION: Please hold EXTENDED {self.joint_name} position steady."
-                self.data.progress = 0
-
+            # Transition to contraction phase after hold time
             if elapsed_time >= self.hold_time:
                 self.data.extended_threshold = int(self.max_angle)
                 self.data.phase = CalibrationPhase.CONTRACT
+                # Update message once for the new phase
+                self.data.message = "Great. Now fully CONTRACT that joint."
                 self.start_time = current_time
                 self.data.progress = 0
-                # FIX: Static message for new phase
-                self.data.message = f"CALIBRATION: Great! Now Fully CONTRACT your {self.joint_name} joint."
                 self.min_angle = 360 
                 self.max_angle = 0 
         
         elif self.data.phase == CalibrationPhase.CONTRACT:
-            # Check holding contracted position
-            if current_angle < (self.min_angle + 5) or elapsed_time < 0.5:
-                self.data.progress = int((elapsed_time / self.hold_time) * 100)
-                # FIX: Static message during hold
-                self.data.message = f"CALIBRATION: Hold CONTRACTED {self.joint_name} position."
-            else:
-                self.start_time = current_time
-                self.data.message = f"CALIBRATION: Please hold CONTRACTED {self.joint_name} position steady."
-                self.data.progress = 0
-
+            # Finalize calibration once contracted position is held
             if elapsed_time >= self.hold_time:
                 self.data.contracted_threshold = int(self.min_angle)
                 self._finalize_calibration()
@@ -97,15 +80,13 @@ class CalibrationManager:
         return False
 
     def _finalize_calibration(self):
-        """Calculates final thresholds and completes calibration."""
+        """Calculates final thresholds and sets the completion message."""
         self.data.safe_angle_min = max(20, self.data.contracted_threshold - self.safety_margin)
         self.data.safe_angle_max = min(175, self.data.extended_threshold + self.safety_margin)
 
         self.data.active = False
         self.data.phase = CalibrationPhase.COMPLETE
-        self.data.message = f"{self.exercise_name} Calibration Complete. Start Workout!"
+        # Final success message
+        self.data.message = "Calibration successful. Ready to start!"
         self.data.progress = 100
-        print(f"Calibration Finalized for {self.exercise_name}: Contracted={self.data.contracted_threshold}, Extended={self.data.extended_threshold}")
-
-        if self.data.extended_threshold - self.data.contracted_threshold < 30:
-            self.data.message = "WARNING: Small Range of Motion detected. Please try to move fully."
+        print(f"Calibration Finalized: {self.data.contracted_threshold} to {self.data.extended_threshold}")
