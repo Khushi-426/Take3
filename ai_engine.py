@@ -1,29 +1,23 @@
 """
-AI Engine & Analytics Logic
-Handles data processing, statistical analysis, and recovery predictions.
-NOW INTEGRATED WITH LIVE ML MODEL (rehab_model.pkl) AND GEMINI API
+AI Engine with BALANCED focus on both arms
 """
 import random
-import time
 import os
 import joblib
 import requests
-import json
 import numpy as np
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
-# Ensure environment variables are loaded
 load_dotenv()
 
 class AIEngine:
     
-    # Global model cache
     _model = None
     
     @classmethod
     def load_model(cls):
-        """Loads the trained Random Forest model (rehab_model.pkl)"""
+        """Loads the trained Random Forest model"""
         if cls._model is None:
             try:
                 model_path = os.path.join(os.path.dirname(__file__), "rehab_model.pkl")
@@ -31,7 +25,7 @@ class AIEngine:
                     cls._model = joblib.load(model_path)
                     print(f"✅ AI Model Loaded: {model_path}")
                 else:
-                    print("⚠️ AI Model not found. Falling back to heuristics.")
+                    print("⚠️ AI Model not found. Using heuristics.")
             except Exception as e:
                 print(f"❌ Error loading AI model: {e}")
                 cls._model = None
@@ -39,28 +33,22 @@ class AIEngine:
     @classmethod
     def predict_form(cls, features: list) -> int:
         """
-        Predicts form quality using the loaded ML model.
-        Args:
-            features: List of 12 floats [rx, ry, r_elb_x, ..., ly]
-        Returns:
-            1 for Good Form, 0 for Bad Form (or model specific class)
+        Predicts form quality using ML model
+        Returns: 1 for Good Form, 0 for Bad Form
         """
         if cls._model is None:
-            # Fallback if model is missing: Return "Good" (1) to avoid blocking
             return 1
         
         try:
-            # Reshape for sklearn (1 sample, 12 features)
             input_vector = np.array(features).reshape(1, -1)
             prediction = cls._model.predict(input_vector)[0]
             return int(prediction)
         except Exception as e:
-            # On prediction error, assume good form to keep app running
             return 1
 
     @staticmethod
     def get_detailed_analytics(sessions):
-        """Processes session history for the Analytics graphs."""
+        """Processes session history for analytics"""
         history = []
         exercise_counts = {}
         total_acc_sum = 0
@@ -71,7 +59,6 @@ class AIEngine:
             errors = s.get('total_errors', 0)
             exercise = s.get('exercise', 'Freestyle') 
             
-            # Calculate real accuracy based on recorded errors
             acc = 100
             if reps > 0:
                 acc = max(0, int((reps - errors) / reps * 100)) 
@@ -105,7 +92,7 @@ class AIEngine:
 
     @staticmethod
     def get_recovery_prediction(sessions):
-        """Generates AI predictions for ROM, Asymmetry, Recommendations, and Session History."""
+        """Generates AI predictions for recovery metrics"""
         if not sessions:
             return None
 
@@ -129,7 +116,7 @@ class AIEngine:
         days_trained = sum(1 for d in last_7_days if d in date_set)
         adherence = int((days_trained / 7) * 100)
 
-        # 2. ASYMMETRY
+        # 2. BALANCED ASYMMETRY CALCULATION
         total_right = sum(s.get('right_reps', 0) for s in sessions)
         total_left = sum(s.get('left_reps', 0) for s in sessions)
         total_limb = total_right + total_left
@@ -137,19 +124,11 @@ class AIEngine:
         if total_limb > 0:
             asymmetry = abs(total_right - total_left) / total_limb * 100
 
-        # 3. AI METRICS & SESSION HISTORY
+        # 3. AI METRICS
         recent_sessions = sessions[-5:]
         rom_progress = []
         stability_score = 0
         session_history = []
-
-        if len(recent_sessions) == 1:
-            try:
-                base_date = datetime.strptime(recent_sessions[0]['date'], "%Y-%m-%d")
-                prev_date = (base_date - timedelta(days=1)).strftime("%Y-%m-%d")
-                rom_progress.append({'date': prev_date[5:], 'rom': 70}) 
-            except:
-                pass
 
         for s in sessions:
             reps = s.get('total_reps', 1) or 1
@@ -185,17 +164,21 @@ class AIEngine:
             
         avg_stability = int(stability_score / len(recent_sessions)) if recent_sessions else 0
 
-        # 4. RECOMMENDATIONS
+        # 4. BALANCED RECOMMENDATIONS
         recommendations = []
         if asymmetry > 15:
             weaker = "Left" if total_right > total_left else "Right"
-            recommendations.append(f"Imbalance: {weaker} side lagging by {int(asymmetry)}%. Use unilateral exercises.")
+            recommendations.append(f"⚖️ Balance Alert: {weaker} side needs {int(asymmetry)}% more work. Focus on unilateral exercises.")
+        
         if avg_stability < 70:
-            recommendations.append("Form Correction Needed: AI detected recurring stability issues.")
+            recommendations.append("📊 Form Focus: AI detected recurring form issues. Slow down your movements.")
         elif avg_stability > 90:
-            recommendations.append("High Performance: Your form is optimal for increased resistance.")
+            recommendations.append("🎯 Excellent Form! Consider increasing resistance or rep count.")
+        
         if adherence < 50:
-            recommendations.append("Consistency: Aim for 4+ days/week to prevent regression.")
+            recommendations.append("📅 Consistency Tip: Aim for 4+ days/week to prevent regression.")
+        else:
+            recommendations.append("✅ Great Consistency! Keep up the excellent routine.")
 
         # 5. HOTSPOTS
         severity = 100 - avg_stability
@@ -209,9 +192,18 @@ class AIEngine:
 
         return {
             'rom_chart': rom_progress,
-            'asymmetry': {'right': total_right, 'left': total_left, 'score': int(asymmetry)},
+            'asymmetry': {
+                'right': total_right, 
+                'left': total_left, 
+                'score': int(asymmetry),
+                'message': f"{'Balanced' if asymmetry < 10 else 'Needs Attention'}"
+            },
             'stability_score': avg_stability,
-            'compliance': {'streak': current_streak, 'weekly_adherence': adherence, 'days_trained': days_trained},
+            'compliance': {
+                'streak': current_streak, 
+                'weekly_adherence': adherence, 
+                'days_trained': days_trained
+            },
             'recommendations': recommendations,
             'hotspots': hotspots,
             'session_history': session_history
@@ -219,8 +211,8 @@ class AIEngine:
 
     def generate_commentary(self, context, query, history):
         """
-        Generates contextual AI feedback using Google Gemini API.
-        Falls back to rule-based logic if API fails.
+        Generates BALANCED contextual AI feedback using Google Gemini API
+        Falls back to rule-based logic if API fails
         """
         api_key = os.getenv("GEMINI_API_KEY")
         
@@ -228,21 +220,31 @@ class AIEngine:
         if api_key:
             print(f"🤖 Connecting to Gemini... Query: {query}")
             try:
-                # Prepare context for the LLM
+                # BALANCED context for both arms
                 reps = context.get('reps', 0)
+                right_reps = context.get('right_reps', 0)
+                left_reps = context.get('left_reps', 0)
                 errors = context.get('errors', 0)
                 feedback = context.get('feedback', 'None')
                 exercise = context.get('exercise', 'Workout')
                 
+                # Calculate balance
+                balance_msg = ""
+                if right_reps > 0 or left_reps > 0:
+                    if right_reps > left_reps + 2:
+                        balance_msg = f"Note: Right arm is {right_reps - left_reps} reps ahead."
+                    elif left_reps > right_reps + 2:
+                        balance_msg = f"Note: Left arm is {left_reps - right_reps} reps ahead."
+                
                 system_prompt = (
                     f"You are a Physio AI Coach. The user is doing {exercise}. "
-                    f"Current Stats: {reps} Reps, {errors} Errors. "
+                    f"Total Reps: {reps} (Right: {right_reps}, Left: {left_reps}). "
+                    f"{balance_msg} "
                     f"Recent Form Feedback: {feedback}. "
-                    "Answer the user's question briefly (max 2 sentences) and motivatingly. "
-                    "Focus on form correction if errors are high."
+                    "Answer briefly (max 2 sentences) and motivate the user. "
+                    "Focus on balanced training for both arms/sides."
                 )
                 
-                # FIX: Updated to 'gemini-2.0-flash-lite' to avoid 429 quota errors
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={api_key}"
                 headers = {'Content-Type': 'application/json'}
                 payload = {
@@ -266,30 +268,46 @@ class AIEngine:
             except Exception as e:
                 print(f"❌ Gemini Connection Failed: {e}")
 
-        # 2. FALLBACK LOGIC (If API fails or no key)
+        # 2. FALLBACK LOGIC
         print("⚠️ Using Rule-Based Fallback")
         return self._rule_based_commentary(context, query)
 
     def _rule_based_commentary(self, context, query):
-        """Internal fallback method for offline mode"""
+        """BALANCED fallback method for offline mode"""
         query = query.lower()
+        
         reps = context.get('reps', 0)
-        raw_feedback = context.get('feedback', '')
-        feedback_text = str(raw_feedback) if raw_feedback else ""
+        right_reps = context.get('right_reps', 0)
+        left_reps = context.get('left_reps', 0)
+        feedback = str(context.get('feedback', ''))
         exercise = context.get('exercise', 'Exercise')
 
+        # BALANCED RESPONSES
         if "form" in query or "doing" in query or "correct" in query:
-            if "bad" in feedback_text.lower() or "fix" in feedback_text.lower():
-                return f"I noticed some issues. {feedback_text}. Try to move slower."
-            return f"Your form looks solid! You've completed {reps} reps."
+            if "bad" in feedback.lower() or "fix" in feedback.lower():
+                return f"I see some form issues. {feedback}. Focus on controlled movements."
+            return f"Your form is solid! Total: {reps} reps (Right: {right_reps}, Left: {left_reps})."
             
-        elif "reps" in query or "count" in query:
-            return f"You have completed {reps} reps so far."
+        elif "reps" in query or "count" in query or "how many" in query:
+            if abs(right_reps - left_reps) > 2:
+                weaker = "left" if right_reps > left_reps else "right"
+                return f"Total: {reps} reps. Right: {right_reps}, Left: {left_reps}. Focus on your {weaker} side!"
+            return f"You've completed {reps} reps! Right: {right_reps}, Left: {left_reps}. Well balanced!"
             
-        elif "tired" in query or "hard" in query:
-            return "You're doing great! Take a deep breath and give me 3 more perfect reps."
+        elif "balance" in query or "even" in query or "equal" in query:
+            diff = abs(right_reps - left_reps)
+            if diff < 2:
+                return "Excellent balance between both sides!"
+            weaker = "left" if right_reps > left_reps else "right"
+            return f"Your {weaker} side needs {diff} more reps to balance out."
             
-        return f"I'm tracking your {exercise}. You're at {reps} reps. Keep going!"
+        elif "tired" in query or "hard" in query or "difficult" in query:
+            return "You're doing amazing! Take a breath and give me 3 more controlled reps on each side."
+        
+        elif "stop" in query or "quit" in query or "end" in query:
+            return "ACTION: STOP"
+            
+        return f"Great work on your {exercise}! You're at {reps} total reps. Keep the momentum!"
 
-# Initial load when module is imported
+# Initial load
 AIEngine.load_model()
