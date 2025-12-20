@@ -16,6 +16,8 @@
     "@types/three": "^0.182.0",
     "axios": "^1.13.2",
     "framer-motion": "^12.23.26",
+    "jspdf": "^3.0.4",
+    "jspdf-autotable": "^5.0.2",
     "jwt-decode": "^4.0.0",
     "lucide-react": "^0.560.0",
     "react": "^19.2.0",
