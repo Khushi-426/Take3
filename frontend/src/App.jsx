@@ -32,7 +32,7 @@ import Profile from "./pages/Profile";
 import Analytics from "./pages/Analytics";
 import RiskPrediction from "./pages/RiskPrediction";
 
-// ✅ NEW IMPORTS (Fixing the routes)
+// REAL IMPORTS
 import MedicalRecord from "./pages/MedicalRecord";
 import MyPrograms from "./pages/MyPrograms";
 
@@ -55,7 +55,6 @@ const Layout = ({ children }) => {
   return (
     <>
       {showNavbar && <Navbar />}
-      {/* Removed the inline style minHeight calculation that might cause layout shifts */}
       <div>{children}</div>
     </>
   );
@@ -127,20 +126,14 @@ function App() {
 
               {/* --- PROFILE --- */}
               <Route path="/profile/overview" element={<Profile />} />
-
-              {/* ✅ CONNECTED REAL COMPONENT */}
               <Route path="/profile/medical" element={<MedicalRecord />} />
-
               <Route
                 path="/profile/preferences"
                 element={<Pages.Preferences />}
               />
 
               {/* --- PROGRAMS --- */}
-
-              {/* ✅ CONNECTED REAL COMPONENT */}
               <Route path="/programs/my-programs" element={<MyPrograms />} />
-
               <Route
                 path="/programs/custom"
                 element={<Pages.CustomProgram />}
@@ -150,19 +143,7 @@ function App() {
               <Route path="/analytics/accuracy" element={<Analytics />} />
               <Route path="/analytics/risk" element={<RiskPrediction />} />
 
-              {/* --- COMMUNITY --- */}
-              <Route
-                path="/community/achievements"
-                element={<Pages.Achievements />}
-              />
-              <Route
-                path="/community/challenges"
-                element={<Pages.Challenges />}
-              />
-              <Route
-                path="/community/therapist"
-                element={<Pages.TherapistModule />}
-              />
+              {/* --- COMMUNITY ROUTES REMOVED HERE --- */}
 
               {/* --- SUPPORT --- */}
               <Route path="/support/faq" element={<Pages.FAQ />} />
