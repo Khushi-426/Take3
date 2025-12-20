@@ -433,8 +433,10 @@ def login():
     if user and bcrypt.check_password_hash(user["password"], data.get("password")):
         return jsonify({
             "email": user["email"],
-            "role": user["role"],
-            "name": user["name"]
+            "role": user.get("role", "patient"),
+            "name": user["name"],
+            # Generate a consistent ID/Code for therapist dashboard usage
+            "therapistCode": f"DR-{user['name'][:3].upper()}-{str(int(time.time()))[-4:]}"
         })
 
     return jsonify({"error": "Invalid credentials"}), 401
@@ -533,7 +535,7 @@ def google_auth():
         return jsonify({"error": "Internal Server Error during Google Auth"}), 500
 
 # ----------------------------------------------------
-# 9. ASSIGN EXERCISE (NEW ROUTE)
+# 9. ASSIGN EXERCISE
 # ----------------------------------------------------
 @app.route("/api/assign", methods=["POST"])
 def assign_exercise():
@@ -554,13 +556,10 @@ def assign_exercise():
     if not patient:
         return jsonify({"error": "Patient not found"}), 404
 
-    # 2. Find Therapist (Optional: For now using a placeholder or first therapist found)
-    # Ideally, get this from the logged-in therapist's token/session
+    # 2. Create Protocol Document
     therapist = users_collection.find_one({"role": "therapist"})
-    therapist_id = therapist["_id"] if therapist else patient["_id"] # Fallback
+    therapist_id = therapist["_id"] if therapist else patient["_id"] 
 
-    # 3. Create Protocol Document
-    # We use update_one with upsert to prevent duplicates for the same exercise
     protocol_doc = {
         "therapist": therapist_id,
         "patient": patient["_id"],
@@ -582,34 +581,26 @@ def assign_exercise():
     return jsonify({"status": "assigned", "exercise": exercise_name}), 200
 
 # ----------------------------------------------------
-# 10. GET EXERCISES (UPDATED to check assignments)
+# 10. GET EXERCISES & THERAPIST ROUTES (UPDATED)
 # ----------------------------------------------------
 @app.route("/api/exercises", methods=["GET"])
 def get_exercises():
-    # 1. Base List of Exercises
     base_list = _get_frontend_exercise_list()
-
-    # 2. Check Assignments if email provided
     email = request.args.get('email')
     assigned_titles = []
     
     if email and users_collection is not None and protocols_collection is not None:
         user = users_collection.find_one({"email": email})
         if user:
-            # Find active protocols for this user
             protocols = protocols_collection.find({"patient": user["_id"], "isActive": True})
             for p in protocols:
-                # Map protocol exercise names to titles (simple match)
                 ex_name = p.get("exerciseName", "")
-                
-                # Match logic: "bicep_curl" -> "Bicep Curl"
                 if "bicep" in ex_name.lower(): assigned_titles.append("Bicep Curl")
                 elif "shoulder" in ex_name.lower(): assigned_titles.append("Shoulder Press")
                 elif "knee" in ex_name.lower(): assigned_titles.append("Knee Lift")
                 elif "squat" in ex_name.lower(): assigned_titles.append("Squat")
                 elif "row" in ex_name.lower(): assigned_titles.append("Seated Row")
 
-    # 3. Mark Recommended Status
     for ex in base_list:
         if ex["title"] in assigned_titles:
             ex["recommended"] = True
@@ -620,26 +611,57 @@ def get_exercises():
 
 @app.route("/api/therapist/patients", methods=["GET"])
 def therapist_patients():
+    """
+    Returns enriched patient data including:
+    - Current Risk Status (High Risk / Alert / Normal)
+    - Last Session Timestamp
+    - Recent Activity Flag (within 24h)
+    """
     if users_collection is None: return jsonify({"patients": []}), 200
 
+    # 1. Fetch all patients
     patients = list(users_collection.find({"role": "patient"}, {"_id": 0, "name": 1, "email": 1, "created_at": 1}))
     enriched = []
+    
+    # 2. Time threshold for 'Recent Activity' (24 hours ago)
+    one_day_ago = time.time() - 86400 
+
     for p in patients:
+        # Get the LAST session for this patient to determine current status
         last = sessions_collection.find_one({"email": p["email"]}, sort=[("timestamp", -1)])
+        
         status = "Normal"
+        last_session_ts = None
+        recent_activity_type = None
+
         if last:
+            last_session_ts = last.get("timestamp")
+            
+            # Risk Logic based on last performance
             reps = last.get("total_reps", 0)
             errors = last.get("total_errors", 0)
-            accuracy = max(0, 100 - int((errors / max(reps, 1)) * 20))
+            
+            # Simple Accuracy Calculation
+            accuracy = max(0, 100 - int((errors / max(reps, 1)) * 20)) if reps > 0 else 0
+            
             if accuracy < 60: status = "High Risk"
             elif accuracy < 80: status = "Alert"
+            
+            # Check if this session happened in the last 24 hours
+            if last_session_ts and last_session_ts > one_day_ago:
+                recent_activity_type = "Session Completed"
+
         enriched.append({
+            "id": str(p["email"]), 
             "name": p.get("name", "Unknown"),
             "email": p["email"],
             "date_joined": datetime.fromtimestamp(p.get("created_at", time.time())).strftime("%Y-%m-%d"),
             "status": status,
-            "hasActiveProtocol": False
+            "last_session_ts": last_session_ts,
+            "recent_activity": recent_activity_type, 
+            "hasActiveProtocol": False # Placeholder
         })
+        
     return jsonify({"patients": enriched}), 200
 
 @app.route("/api/therapist/notifications", methods=["GET"])
